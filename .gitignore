@@ -1,0 +1,22 @@
+# eval scaffolding + runtime
+*-workspace/
+state.json
+state.json.lock
+*.corrupt.*
+test-fixtures/
+# verification throwaways (Task 4) -- never commit to main
+zzfixture-*/
+# defensive credential / secret artifacts (scan is the real gate)
+.env
+.env.*
+.npmrc
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+# OS cruft
+.DS_Store
+Thumbs.db

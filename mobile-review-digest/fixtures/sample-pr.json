@@ -1,0 +1,16 @@
+{
+  "number": 6,
+  "title": "Gate open Trade or Tighten room entry",
+  "headRefName": "gate-open-multiplayer-room-entry",
+  "isDraft": false,
+  "mergeable": "MERGEABLE",
+  "mergedAt": null,
+  "createdAt": "2026-06-18T12:00:00Z",
+  "updatedAt": "2026-06-18T12:30:00Z",
+  "url": "https://github.com/khe618/traderprep/pull/6",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "state": "OPEN",
+  "body": "## Summary\n- Adds the trial wall to open multiplayer room entry.\n",
+  "files": [{ "path": "components/exercises/trade-or-tighten/lobby.js" }],
+  "statusCheckRollup": [{ "conclusion": "SUCCESS", "status": "COMPLETED" }]
+}

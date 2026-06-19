@@ -1,0 +1,30 @@
+{
+  "skill_name": "sync-codex",
+  "notes": "Each run first copies the pristine fixture (sync-codex-workspace/pristine) into its own sandbox and operates only there, so real config is never touched. The skill is pointed at the sandbox via scan.py's --workspace/--claude-home/--codex-home overrides.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "full-sync-plan",
+      "prompt": "I want to get my Claude Code and Codex setups aligned: keep CLAUDE.md and AGENTS.md in sync (AGENTS.md as the source of truth) and mirror my skills between the two. IMPORTANT: do NOT touch my real config. Operate ONLY on this sandbox copy. workspace = <SANDBOX>/workspace, Claude home = <SANDBOX>/claude-home, Codex home = <SANDBOX>/codex-home. Show me the full plan of what you'd change.",
+      "expected_output": "A report-first plan that: fixes the broken root AGENTS.md (drops 'use the Bash tool' and 'Codex.ai/code'), proposes @import-based CLAUDE.md files, proposes creating proj-a/AGENTS.md and proj-b/CLAUDE.md, flags idea-capture as diverged (no overwrite), flags commit/git-commit as a probable name-mismatch pair, proposes creating agent-logs on the Codex side (translated, with openai.yaml, $ invocation), skips wakeup and implement-task as runtime-specific, recognizes proj-c is already in target shape, and does NOT modify any fixture files (waits for confirmation).",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 1,
+      "name": "full-sync-apply",
+      "prompt": "Align my Claude Code and Codex config: CLAUDE.md and AGENTS.md kept in sync with AGENTS.md as source of truth, and skills mirrored between the two. Operate ONLY on this sandbox (do not touch real config): workspace = <SANDBOX>/workspace, Claude home = <SANDBOX>/claude-home, Codex home = <SANDBOX>/codex-home. I've reviewed and pre-approve the changes — go ahead and apply them, with backups.",
+      "expected_output": "Applied changes in the sandbox: root AGENTS.md cleaned, CLAUDE.md files use @./AGENTS.md, proj-a/AGENTS.md and proj-b/CLAUDE.md created, agent-logs created on Codex side with agents/openai.yaml and $agent-logs invocation, idea-capture left unchanged on both sides, no duplicate commit/git-commit created, wakeup/implement-task not ported, originals backed up under claude-home/backups/sync-codex/<timestamp>/.",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "name": "single-skill-translate",
+      "prompt": "Translate just my Claude `agent-logs` skill into a Codex skill — I don't want anything else changed. Operate ONLY on this sandbox: Claude home = <SANDBOX>/claude-home, Codex home = <SANDBOX>/codex-home. Go ahead and create it.",
+      "expected_output": "Creates codex-home/skills/agent-logs/ with SKILL.md (invocation converted to $agent-logs, LEARNINGS.md convention preserved, Codex-appropriate language) and agents/openai.yaml (display_name/short_description/default_prompt referencing $agent-logs). Touches nothing else.",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}
