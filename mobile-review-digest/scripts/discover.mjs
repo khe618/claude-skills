@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const DEFAULT_ROOT = 'C:/Users/khe61/OneDrive/Documents/CS Programs';
+const DEFAULT_ROOT = 'C:/dev';
 
 export function slugFromRemote(url) {
   if (!url) return null;

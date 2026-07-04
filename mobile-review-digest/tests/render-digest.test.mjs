@@ -44,9 +44,21 @@ test('renderDigest renders tasks as collapsible raw blocks (escaped) with an Obj
   const html = renderDigest(sample);
   assert.match(html, /<details>/);
   assert.match(html, /<span class="thead">#1 &middot; in progress &middot; Finish billing<\/span>/);
-  assert.match(html, /<span class="taskobj">Ship the billing surface and merge PR #8 to main\.<\/span>/); // first sentence only
+  assert.match(html, /<span class="taskobj">Ship the billing surface and merge PR #8 to main\. More detail here\.<\/span>/); // full objective, not truncated
   assert.match(html, /Evidence: &lt;x&gt;/);           // full raw still behind expand, escaped
   assert.match(html, /class="taskbody"/);
+});
+
+test('renderDigest shows the full objective (no first-sentence / length truncation)', () => {
+  const longObj = 'Refactor the auth middleware to read the session cookie once. '
+    + 'Thread the resolved user through the request context. '
+    + 'Drop the duplicate lookups in the API handlers so each request hits the DB at most once.';
+  const html = renderDigest({ generatedAt: 'now', since: 's', now: NOW, repos: [{
+    slug: 'r', newPrs: [], prError: false,
+    tasks: [{ num: 4, state: 'open', title: 'Auth cleanup', fields: { objective: longObj }, raw: '' }],
+  }] });
+  assert.match(html, new RegExp('<span class="taskobj">' + longObj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</span>'));
+  assert.doesNotMatch(html, /…/); // no ellipsis truncation
 });
 
 test('renderDigest empty states + no removed v1 artifacts', () => {
