@@ -54,15 +54,33 @@ for the same review.
    - Edit only the selected entry in `TASKS.md`: flip `[open] → [in progress]`
      per the contract (the smallest compatible edit; no invented states), and
      record the working branch in its `Evidence` line.
-   - Commit the `TASKS.md` status update on the primary branch when the
-     repository workflow permits direct primary-branch commits, with a narrow
-     message such as `Mark task in progress`. If direct commits are
-     inappropriate, leave the status update in the working tree and continue.
+   - Do **not** commit or push this update. `TASKS.md` is gitignored
+     machine-wide (`~/.gitignore_global`), so it is untracked in every repo:
+     `git add` won't stage it without `-f`, pushes to the default branch are
+     blocked anyway, and a fresh worktree won't even contain the file. The
+     local file in the primary checkout IS the source of truth — edit it in
+     place and move on.
 
 3. **Create an implementation worktree**
    - Use the `superpowers:using-git-worktrees` skill.
    - Create a new branch from the updated primary branch in a separate worktree,
      named for the task, e.g. `task/<short-slug>`.
+   - Known traps (details in `~/.claude/agent-logs/`):
+     - The native `EnterWorktree` tool fails `EEXIST mkdir '.claude/worktrees'`
+       whenever that dir already exists (i.e. on the 2nd+ worktree in a repo).
+       Don't retry — fall back to `git worktree add <path> -b <branch> <base>`
+       (use the project's convention or a sibling `<repo>-worktrees/` dir),
+       then use absolute paths / `git -C <worktree>` for follow-up commands.
+     - A fresh worktree has no `node_modules`. Seed it by cd'ing in and running
+       plain `npm install` — never `npm install --prefix <dir>`, which silently
+       injects a bogus self-referential `file:` dependency into `package.json`.
+       For read-only tooling (lint/tests) a junction to the primary checkout's
+       node_modules works
+       (`cmd //c "mklink /J node_modules ..\\..\\<primary>\\node_modules"` from
+       inside the worktree), but remove it with `cmd //c "rmdir node_modules"`
+       BEFORE any `git worktree remove` — `remove --force` recurses through the
+       junction and wipes the PRIMARY checkout's node_modules. Anything that
+       runs Metro/`expo start` needs a real install, not a junction.
    - Do all implementation work in the worktree. Keep the primary checkout
      reserved for the task-status update.
 
@@ -88,6 +106,12 @@ for the same review.
      independent subtasks and dispatch subagents (the Agent tool); keep one
      coordination thread responsible for integration, consistency, and final
      judgment. See `superpowers:dispatching-parallel-agents` when work fans out.
+   - In each subagent dispatch prompt, say explicitly: "synthesize and return
+     the full report yourself as your final message; do NOT delegate to or
+     wait on sub-agents." A parent agent that spawns its own children can
+     complete with a "waiting…" placeholder instead of its report; recover by
+     `SendMessage` to that agentId: "produce your final synthesized report
+     NOW, directly."
    - Follow repository conventions and existing architecture. Prefer focused
      edits over broad refactors.
    - For bugs or unexpected failures, use `superpowers:systematic-debugging`
@@ -138,9 +162,10 @@ for the same review.
     - Keep the task `[in progress]` and append the PR link to its `Evidence`
       line per the contract — do **not** invent an "in review" state. The task is
       removed by `task-manage` once the work merges to the default branch.
-    - Make this update according to the repository's normal workflow: if it
-      belongs on the implementation branch, include it in the PR; if status is
-      tracked only on the primary branch, commit it there after the PR exists.
+    - Make this update by editing the local `TASKS.md` in the **primary
+      checkout** only — the file is gitignored and untracked (see step 2), so
+      it can't ride along in the PR and the worktree copy doesn't exist. No
+      commit is involved.
 
 11. **Capture deferred ideas**
     - Per the global preferences, run the `idea-capture` check after a larger
