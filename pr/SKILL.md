@@ -11,7 +11,7 @@ Turn the current branch into a GitHub pull request via `gh pr create`. The branc
 
 Run these in order. The inspection steps are not skippable — a PR title and body written without reading the diff is just noise.
 
-1. **`gh auth status`** — confirm `gh` is installed and authenticated. If it isn't, stop and tell the user; don't try to authenticate on their behalf.
+1. **`gh auth status`** — confirm `gh` is installed and authenticated. If the Bash tool reports `gh: command not found`, don't conclude it's missing — the Git Bash PATH omits `C:\Program Files\GitHub CLI` (a `powershell.exe` spawned from Bash inherits the same stripped PATH). Retry by full path: `"/c/Program Files/GitHub CLI/gh.exe" auth status`, and use that full path for every gh call below. If genuinely unauthenticated, stop and tell the user; don't try to authenticate on their behalf.
 2. **`git status`** and **`git branch --show-current`** — confirm the working tree is clean-ish (uncommitted changes won't be in the PR, which may be a surprise) and note the current branch.
 3. **Determine the base branch.** Run `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` to get the repo's default branch (usually `main` or `master`). That is the default base. If the current branch was branched from something else (e.g. a long-lived `develop` or a stacked branch), the user should tell you — but don't go hunting for it unprompted. **If the current branch *is* the default branch, stop** — you can't open a PR from main into main.
 4. **`git log --oneline <base>..HEAD`** — see the commits that will be in the PR. If this is empty, stop: there's nothing to PR.

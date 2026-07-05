@@ -54,9 +54,12 @@ not as a new state.
 
 ## Field rules
 
-- All five fields (`Context`, `Objective`, `Scope`, `Evidence`, `Done when`)
-  should be present. Keep each task **self-contained** — never write "do the
-  above" or "same as the previous task."
+- **`Objective` is required and must be non-empty on every task.** It states the
+  concrete change to make and is the one field the review digest surfaces, so a
+  task without a real objective is not agent-ready — leave such an item in
+  `IDEAS.md` rather than promoting it. The other four fields (`Context`, `Scope`,
+  `Evidence`, `Done when`) should also be present. Keep each task
+  **self-contained** — never write "do the above" or "same as the previous task."
 - `Evidence` is the audit trail: where the task came from and, once work starts,
   the branch / commit / PR that carries it. The consumer updates `Evidence`
   rather than adding a new state.

@@ -52,6 +52,13 @@ the Job B flow below afterward.
 
 ## Degradation (never hard-fail)
 - Per-repo `gh` error → "PRs unavailable" row + blocks cutoff advance.
+- **Zero repos discovered → treat as a broken scan, not a clean empty result.**
+  With no repos there are no per-repo errors, so `allReposOk` stays true and
+  the cutoff advances over a scan that found nothing (this masked a
+  `DEFAULT_ROOT` move for days). If the page says "No task queues found",
+  first check `discover.mjs` `DEFAULT_ROOT` still points at the live
+  workspace; after fixing, roll `lastScheduledRunAt` back in `last-run.json`
+  to before the earliest missed PR or it stays stranded behind the cutoff.
 - No prior cutoff → "New in the last 24h" (labeled).
 - Job B any failure (no fresh core / no slot / no items / gh/model error / deploy
   fail) → no-op; Job A's core page stands.

@@ -55,7 +55,11 @@ the contract is the *format*.
    skeptical eye on your own removals and promotions. See "Adversarial
    self-review" below. This is the gate that matters most when this skill runs
    autonomously, because there is no human checking the result.
-7. Write or update `TASKS.md` following the contract format exactly.
+7. Write or update `TASKS.md` following the contract format exactly. Before
+   writing, verify every task carries a non-empty `Objective:` line stating the
+   concrete change — it's the one required field and the line the review digest
+   surfaces. If you can't articulate the objective, the item isn't agent-ready;
+   leave it in `IDEAS.md` rather than promoting a task with an empty objective.
 
 ## Git guidance
 

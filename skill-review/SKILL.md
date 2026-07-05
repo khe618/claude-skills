@@ -25,7 +25,7 @@ Both modes deliver via a branch + PR -- never a direct commit to `main` -- unles
 - `--global-only` -- skip per-project `LEARNINGS.md`; read only global `~/.claude/agent-logs/*.md` files.
 - `--in-place` -- apply edits directly to the working tree, no branch, no PR, no review surface. The user has opted out of review. Still runs preimage verification, redaction, and secret scans per edit. Label this mode clearly in all output.
 
-**Out of scope (v1):** creating new skills (that is `skill-creator`); skill evals or wholesale description rewrites; scheduled or hook runs; auto-merging PRs; re-checking prior PR status; writing back to agent-logs files.
+**Out of scope (v1):** creating new skills (that is `skill-creator`); skill evals or wholesale description rewrites; scheduled or hook runs; auto-merging PRs; auto-running `sync-codex` (the Codex mirror is *handed off* after human review, never synced from inside this skill -- see Section 9); re-checking prior PR status; writing back to agent-logs files.
 
 ## 2. Owned-skill discovery
 
@@ -290,6 +290,18 @@ Then one line per applied edit:
 [applied] <skill>: <one-line-description> (from <logicalSource> <date>)
 ```
 
+**Codex sync hand-off (never auto-run):**
+
+skill-review edits only the Claude side (`~/.claude/skills`). Some skills are mirrored as a *translated* copy under `~/.codex/skills` (kept aligned by the `sync-codex` skill), so an applied edit can leave Codex stale. **Never invoke `sync-codex` from within this skill** -- only hand off, and only for the human-reviewed version of the change:
+
+1. **Detect mirrored targets.** For each skill that received an `applied` edit this run, check for a Codex counterpart: a directory `~/.codex/skills/<name>` exists, with the one known rename `commit` -> `git-commit`. If `~/.codex/skills` is absent (Codex not installed), or no applied skill has a counterpart, print `No Codex-mirrored skills changed -- no sync needed.` and stop.
+2. **PR modes (interactive, `--auto`).** The edits live on a branch/PR; local `main` is unchanged, so there is nothing to sync yet, and the human-review gate is the PR *merge* -- which happens after this run exits. Do not run anything. Print:
+   `Codex-mirrored skill(s) changed: <list>. After you review and merge PR <url> and pull ~/.claude/skills, run sync-codex scoped to those skills to mirror the change into ~/.codex/skills. Not run here by design -- only the merged, human-reviewed version should be synced.`
+3. **`--in-place` mode (no review surface).** The edits were applied unreviewed, so do **not** start a sync. Print:
+   `Applied in-place with no review. Codex-mirrored skill(s) now differ from ~/.codex/skills: <list>. Run sync-codex (it has its own report-before-write gate) when you choose to propagate -- intentionally not auto-run because these edits were not human-reviewed.`
+
+The rule is identical across modes: **detect and hand off; a human-reviewed change is what authorizes the sync; `sync-codex` always runs separately** (preserving its own plan-before-write review). This is a hand-off message only -- it changes no files and runs no commands.
+
 ## 10. Error handling and edge cases
 
 - **No repo / no remote / `gh` unauthed:** abort with setup guidance (both modes), unless `--in-place` is passed (explicit, no review surface).
@@ -307,3 +319,4 @@ Then one line per applied edit:
 - **New or rewritten skill:** `catalogFingerprint` changes; deferred `new-skill-candidate` and `needs-human-review` entries re-surface.
 - **Target text changed before apply:** `conflict` (live candidate).
 - **Plugin skills:** never read or written; `~/.claude/plugins/**` is excluded from all phases.
+- **Codex-mirrored skill edited:** at Finalize, hand off to `sync-codex` (gated on the human-reviewed/merged change); never auto-run it from this skill. `--in-place` edits are flagged as out-of-sync but not auto-synced, because they were not reviewed.

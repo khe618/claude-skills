@@ -100,7 +100,9 @@ worktree.** These projects use git worktrees heavily (`.worktrees/…`,
 `.claude/worktrees/…`, Codex worktrees). If the PR's head branch is checked out
 in one, `--delete-branch` errors with *"cannot delete branch … used by
 worktree at …"*. **This does not mean the merge failed** — the squash-merge on
-the remote succeeds; only the local branch deletion is skipped. Confirm with:
+the remote succeeds. But the failed local delete also aborts the REMOTE branch
+deletion (gh runs both as one post-merge step), so the branch survives on
+origin too — clean up both sides in step 4. Confirm the merge with:
 
 ```bash
 gh pr view <N> --json state,mergeCommit    # expect state MERGED + a commit sha
@@ -199,8 +201,14 @@ discard uncommitted work to make cleanup easier.
 2. **Merged feature branch + its worktree.** If `--delete-branch` was skipped
    because the branch was in a worktree: check that worktree for uncommitted
    changes (`git -C <wt> status --short`). If clean, `git worktree remove <wt>`
-   then `git branch -d <branch>`. **If it has uncommitted WIP, leave it and
-   report it** — don't force-remove and lose the work.
+   then delete the local branch with `git branch -D` (squash merges aren't
+   ancestors of main, so `-d` refuses "not fully merged"; `-D` is correct once
+   `gh pr view` shows `MERGED`). Also delete the REMOTE branch — the aborted
+   `--delete-branch` left it on origin: `git push origin --delete <branch>`
+   (batching several is fine), then confirm with
+   `git ls-remote --heads origin <branch>` (empty = gone). **If the worktree
+   has uncommitted WIP, leave it and report it** — don't force-remove and lose
+   the work.
 3. **Fast-forward local `<base>`** so it matches the shipped remote — but only
    if the working tree allows it (step 3's `--ff-only`); never force it past
    the user's uncommitted changes.
@@ -255,6 +263,27 @@ symptom, apply the fix, don't re-debug from scratch.
   hand-write one from `repo.json`.
 - **`git worktree remove` "Permission denied" under OneDrive.** Covered in
   step 4 — `--force` still deregisters; the orphan folder is harmless.
+- **Merged to main but no production deploy appeared** (auto-deploy mode). If
+  main was fast-forwarded onto a SHA Vercel already built as a *preview* (the
+  feature-branch tip), Vercel dedups deployments by commit SHA and never
+  creates the production deployment. Fix: push a new SHA
+  (`git commit --allow-empty -m "chore: trigger production deploy"` on main)
+  or Promote/Redeploy the existing deployment in the dashboard (a
+  Redeploy-to-Production rebuilds with prod env vars). Squash/merge commits
+  create fresh SHAs and avoid this; it bites on manual fast-forward merges.
+- **`gh pr merge` fails with `fatal: bad object worktrees/<name>/HEAD` +
+  "did not send all necessary objects".** A stale half-created worktree with
+  an all-zero HEAD poisons fetch negotiation; the wording blames the remote
+  but the problem is local. The PR usually still merged fine server-side —
+  confirm with `gh pr view <N> --json state,mergedAt` FIRST. Repair:
+  `git worktree list` to find the culprit (`0000000 (detached HEAD)`); if its
+  dir holds only a `.git` pointer file, `rm -rf .git/worktrees/<name>` (and
+  the dir); otherwise write a real commit sha into
+  `.git/worktrees/<name>/HEAD` and remove the stale `HEAD.lock`.
+- **`gh: command not found` from the Bash tool.** The Bash tool's Git Bash
+  PATH omits `C:\Program Files\GitHub CLI` (and a `powershell.exe` spawned
+  from it inherits the same stripped PATH). gh IS installed — call it by full
+  path: `"/c/Program Files/GitHub CLI/gh.exe" …`.
 - **Don't treat `tsc --noEmit` as the gate** if a project's docs say its real
   gate is `npm run lint` (some repos carry a standing `tsc` error baseline).
   Respect each project's documented checks.

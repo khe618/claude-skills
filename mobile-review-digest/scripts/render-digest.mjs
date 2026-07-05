@@ -24,18 +24,10 @@ function newPrRowHtml(repoSlug, pr, now) {
     + `<div class="prsum">${richText(pr.summary || '')}</div></li>`;
 }
 
-function firstSentence(s) {
-  if (!s) return '';
-  const t = String(s).trim();
-  const m = t.match(/^.*?[.!?](\s|$)/);
-  let out = (m ? m[0] : t).trim();
-  if (out.length > 160) out = out.slice(0, 157).trimEnd() + '…';
-  return out;
-}
-
 function taskDetailsHtml(task) {
   const head = `#${escapeHtml(task.num)} &middot; ${escapeHtml(task.state)} &middot; ${escapeHtml(task.title)}`;
-  const obj = firstSentence(task.fields && task.fields.objective);
+  // Show the objective in full — it's the line the reader scans, so don't truncate it.
+  const obj = ((task.fields && task.fields.objective) || '').trim();
   const objLine = obj ? `<span class="taskobj">${richText(obj)}</span>` : '';
   return `<details><summary><span class="thead">${head}</span>${objLine}</summary>`
     + `<pre class="taskbody">${escapeHtml(task.raw || '')}</pre></details>`;
