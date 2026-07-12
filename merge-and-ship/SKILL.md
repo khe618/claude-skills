@@ -2,7 +2,8 @@
 name: merge-and-ship
 description: >-
   Merge a GitHub pull request, get the result shipped to production, and clean
-  up after — as one workflow, for Vercel-deployed projects. Use this WHENEVER
+  up after — as one workflow, for the user's deployed projects (Vercel and/or
+  Render). Use this WHENEVER
   the user wants to land a PR: "merge PR #9", "merge this PR", "ship PR 12",
   "merge and deploy", "land my branch", "merge it", or types /merge-and-ship.
   Treat merging and deploying as inseparable here — a merge that doesn't reach
@@ -20,10 +21,14 @@ two, so changes sit unshipped or worktrees/branches pile up. This skill keeps
 them attached and, just as importantly, **verifies each step actually
 happened** instead of assuming it did.
 
-It is written for the user's Vercel-deployed apps (travel_app, traderprep, and
-siblings). They live under a OneDrive path with a space in it
-(`CS Programs`) — quote paths — and OneDrive introduces a few specific
-failure modes this skill is built to absorb (see [Failure modes](#failure-modes-fold-these-in)).
+It is written for the user's deployed apps (travel_app, traderprep, and
+siblings — mostly under `C:\dev`; a few older projects still live under a
+OneDrive path with a space in it, `CS Programs` — quote paths). OneDrive
+introduces a few specific failure modes this skill is built to absorb (see
+[Failure modes](#failure-modes-fold-these-in)). Note the same repo can be
+built by MORE THAN ONE platform (traderprep: Render serves production,
+Vercel still auto-builds previews) — which is why step 3 starts by
+identifying the host that actually serves the domain.
 
 ## The one rule that makes this safe
 
@@ -114,8 +119,28 @@ branch/worktree to step 4.
 ## Step 3 — Ship to production
 
 The merge put the code on the remote `main`, but **that does not always mean
-it's deployed.** Decide the deploy mode by reading the project's own deploy
-docs first — they record per-project quirks you can't infer:
+it's deployed.**
+
+### First: confirm which host actually serves the production domain
+
+The same repo can be connected to more than one platform, and everything
+downstream — deploy mode, env vars, webhooks, where to read runtime logs —
+belongs to **the host serving the domain**, not whichever dashboard you
+happen to have open. One header read settles it:
+
+```bash
+curl -sI https://<production-domain>/ | grep -iE "server|x-vercel-id|x-render-origin-server"
+# x-vercel-id            → Vercel serves it
+# x-render-origin-server → Render serves it (often behind "server: cloudflare")
+```
+
+Known example: **traderprep.org is served by Render** (auto-deploys from
+`main`); the connected Vercel project only builds branch *previews* and
+`traderprep.vercel.app`. A Vercel deploy reaching READY there ships nothing
+to the live domain. Don't debug "prod" env/deploys until this check is done.
+
+Then read the project's own deploy docs — they record per-project quirks you
+can't infer:
 
 ```bash
 # look for a "## Deploy" section and any deploy script
@@ -126,12 +151,13 @@ ls .vercel 2>/dev/null
 
 Two modes:
 
-- **Auto-deploy mode** (e.g. traderprep — Vercel's Git integration ships on
-  merge to the production branch): the merge already triggered the deploy. Your
-  job is to **verify it landed**, not to deploy again. Check
-  `npx vercel ls` (or `vercel inspect`) for a new Production deployment that
-  reaches READY. Only fall back to a manual deploy if no new deployment appears
-  within a few minutes.
+- **Auto-deploy mode** (e.g. traderprep — Render auto-deploys `main` to
+  traderprep.org): the merge already triggered the deploy. Your job is to
+  **verify it landed**, not to deploy again. Check the serving host's
+  dashboard/CLI for a new production deployment that goes live (for a Vercel-
+  served project, `npx vercel ls` reaching READY; for Render, confirm via the
+  live-domain check in "Verify the deploy" below). Only fall back to a manual
+  deploy if nothing new appears within a few minutes.
 - **Manual mode** (e.g. travel_app — AGENTS.md states pushes don't auto-deploy
   because the Git integration isn't firing; the user has standing authorization
   to deploy, no need to re-ask): you must run the deploy yourself.
@@ -175,16 +201,37 @@ one from the ids in `repo.json`:
 
 ### Verify the deploy — don't assume
 
-A deploy command returning isn't proof. Confirm:
+A deploy command returning isn't proof. Confirm, in two layers:
+
+**Layer 1 — the deployment exists and is live:**
 
 - The `--prod` JSON output shows `"readyState": "READY"` and
   `"target": "production"`, **and** the production alias was re-pointed
   (look for `Aliased  https://<your-domain>` in the output), or
-- `npx vercel ls` shows the newest Production deployment is minutes-old.
+- `npx vercel ls` shows the newest Production deployment is minutes-old
+  (or the Render dashboard/live check below for Render-served domains).
 
-State the deployed URL/alias and READY status in your report. If it errored or
-stuck in BUILDING, say so — a failed deploy after a successful merge is the
-worst silent outcome.
+**Layer 2 — the shipped change actually works on the PUBLIC domain.**
+READY/live proves the *build*, not the *feature*: runtime-only failures
+(edge-runtime restrictions, module-load crashes, env-var problems) have
+surfaced ONLY on the public production domain — invisible locally and
+unverifiable on previews, because **preview deployments are SSO-gated**
+(curl gets a 302 to an auth interstitial, so "the preview worked" was never
+actually tested). Hit the route(s) the PR touched on the real domain:
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}" https://<production-domain>/<changed-route>
+# Windows curl dying with schannel error 0x80092013 (revocation server
+# offline)? Add --ssl-no-revoke — environment noise, not a server problem.
+```
+
+For an API/OG-image/binary endpoint, check the content-type or first bytes,
+not just the status. If the change is visual and non-trivial, load it in
+Chrome per the global UI-testing rule.
+
+State the deployed URL/alias, READY status, and the live-route check in your
+report. If it errored or stuck in BUILDING, say so — a failed deploy after a
+successful merge is the worst silent outcome.
 
 ## Step 4 — Clean up
 
@@ -284,6 +331,13 @@ symptom, apply the fix, don't re-debug from scratch.
   PATH omits `C:\Program Files\GitHub CLI` (and a `powershell.exe` spawned
   from it inherits the same stripped PATH). gh IS installed — call it by full
   path: `"/c/Program Files/GitHub CLI/gh.exe" …`.
+- **Env vars broke only one environment.** Env vars live per-host AND
+  per-scope (Vercel Production vs Preview; Render separately) — a var set on
+  the non-serving host does nothing for the live domain. Two recorded traps:
+  a stray trailing newline in a pasted key breaks every request that embeds it
+  in a header (`TypeError: Headers.append: … invalid header value` → login
+  returns a generic error), and `NEXT_PUBLIC_*` values are inlined at build
+  time, so fixing one requires a **redeploy**, not just saving the var.
 - **Don't treat `tsc --noEmit` as the gate** if a project's docs say its real
   gate is `npm run lint` (some repos carry a standing `tsc` error baseline).
   Respect each project's documented checks.
