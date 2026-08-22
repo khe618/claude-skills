@@ -1,0 +1,67 @@
+# Codemagic workflow: build a Capacitor iOS app and upload to TestFlight.
+# Copy to the repo root. Replace the three <PLACEHOLDERS> below.
+#
+#   <BUNDLE_ID>            e.g. us.emojimatch.app  (matches capacitor.config.ts appId)
+#   <APP_STORE_APP_ID>     numeric id from the App Store Connect URL /apps/<id>/...
+#   <ASC_INTEGRATION_NAME> the name of the App Store Connect API key you added in
+#                          Codemagic → Team settings → Integrations (match this exactly)
+#
+# Requires a secure Codemagic variable CERTIFICATE_PRIVATE_KEY (an RSA private
+# key: `openssl genrsa -out cert_key.pem 2048`) in a variable group `ios_signing`.
+
+workflows:
+  ios-testflight:
+    name: iOS · Build & TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: <ASC_INTEGRATION_NAME>
+    environment:
+      groups:
+        - ios_signing   # provides secure var CERTIFICATE_PRIVATE_KEY
+      vars:
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: "<BUNDLE_ID>"
+        APP_STORE_APPLE_ID: "<APP_STORE_APP_ID>"
+      node: 22            # Capacitor 8 CLI requires Node >= 22
+      xcode: latest
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Capacitor sync iOS (copies public/ web assets + plugins)
+        script: npx cap sync ios
+      - name: Set build number from Codemagic counter
+        script: |
+          cd ios/App
+          agvtool new-version -all $(($BUILD_NUMBER + 1))
+      - name: Set up code signing (create cert + profile if missing, reuse if present)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key @env:CERTIFICATE_PRIVATE_KEY \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Resolve Swift Package Manager dependencies
+        script: |
+          xcodebuild -resolvePackageDependencies \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME"
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # false = upload only; build is auto-available to INTERNAL TestFlight
+        # testers after processing, no review. For EXTERNAL testers, fill in
+        # TestFlight test info in App Store Connect, set this to true, and add
+        # external beta_groups below.
+        submit_to_testflight: false
