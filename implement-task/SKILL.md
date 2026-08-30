@@ -69,14 +69,18 @@ for the same review.
    - Generate a run id once for this run: `local:<6-char [a-z0-9] session-short-id>`
      (reuse the same 6-char suffix in the ledger event filename this run
      writes). Record the claim timestamp in ISO 8601 UTC (`date -u
-     +%Y-%m-%dT%H:%M:%SZ`).
+     +%Y-%m-%dT%H:%M:%SZ`). **`actor` is `local:<project>` — stable per
+     project, never a per-session/per-run value** (the dashboard groups its
+     routines/health map by `actor`, so a unique actor per run would fragment
+     that view). `run` stays the unique-per-run id above; don't conflate the
+     two.
    - `git -C /c/dev/factory pull`.
    - Build **one commit** containing exactly two changes: (a) the queue flip
      `[open] → [in progress]` for the chosen task, with
      `Evidence: claimed <ISO ts> by local:<session-short-id>` appended, and
      (b) a new ledger event file
      `ledger/events/<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-claimed.json`
-     (schema per spec §4.3: `v:1`, `ts`, `actor: "local:<session-short-id>"`,
+     (schema per spec §4.3: `v:1`, `ts`, `actor: "local:<project>"`,
      `run: "local:<session-short-id>"`, `event: "claimed"`, `project`,
      `task: "<id>"`).
    - `git -C /c/dev/factory push`.
@@ -255,11 +259,14 @@ keep retrying with backoff; if it truly cannot land after several tries,
 leave the transition committed locally and tell the user exactly what to
 push and why (never silently drop a terminal transition).**
 
-Ledger event detail: each event file needs `v:1`, `ts` (ISO UTC), `actor`
-and `run` (`local:<session-short-id>`, the same id used at claim time),
-`event` (`pr_opened` / `failed` / `blocked` per the table), `project`,
-`task` (`<id>`), `detail` (one line — the PR link for `pr_opened`, the
-failure/block reason otherwise), and `pr` (the PR URL, when one exists).
+Ledger event detail: each event file needs `v:1`, `ts` (ISO UTC),
+`actor: "local:<project>"` (stable per project — never per-session; the
+dashboard's routines/health map groups by `actor`, so it must not fragment
+across runs), `run: "local:<session-short-id>"` (the same id used at claim
+time, unique to this run), `event` (`pr_opened` / `failed` / `blocked` per
+the table), `project`, `task` (`<id>`), `detail` (one line — the PR link for
+`pr_opened`, the failure/block reason otherwise), and `pr` (the PR URL, when
+one exists).
 
 ## Autonomy rules
 
