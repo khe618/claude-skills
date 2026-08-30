@@ -77,6 +77,14 @@ gh pr checks <N>          # CI status — don't merge over red checks
 - `baseRefName` is the intended base (usually `main`). A PR accidentally based
   on the wrong branch is a common foot-gun — surface it, don't merge.
 - If CI is red or pending, say so and stop. Ask before merging anyway.
+- **`needs-local-ui-check` label → FAIL the pre-merge check** unless the user
+  has already confirmed the UI pass earlier in *this* conversation. This is
+  the local twin of a factory cloud worker's E2E gap (spec §5.1 step 5):
+  cloud PRs can't drive a browser, so a UI-heavy task's PR gets this label and
+  the merge gate refuses it until a human actually looked at it. Check labels
+  with `gh pr view <N> --json labels`; if present and unconfirmed, stop and
+  ask the user to do the UI pass (or confirm they already did) before
+  proceeding — do not merge on the strength of green CI alone for these PRs.
 
 If the user invoked the skill with a PR number, that *is* the go-ahead to
 merge — once the checks pass, proceed without a second "shall I merge?" gate.
@@ -259,13 +267,41 @@ discard uncommitted work to make cleanup easier.
 3. **Fast-forward local `<base>`** so it matches the shipped remote — but only
    if the working tree allows it (step 3's `--ff-only`); never force it past
    the user's uncommitted changes.
-4. **Prune the shipped task from `TASKS.md`** (if the project keeps one). The
-   merge+deploy you just finished is the moment a queued task is actually
-   *done*, and you hold the only key that identifies it: this PR's number and
-   head branch. Follow the `task-manage` contract
-   (`~/.claude/skills/task-manage/references/tasks-md-contract.md`) — `TASKS.md`
-   is a two-state `[open]`/`[in progress]` queue with **no done state**, so
-   "done" means **deleting the matching entry**, not adding a `[done]` marker.
+4. **Prune the shipped task from the queue.** The merge+deploy you just
+   finished is the moment a queued task is actually *done*, and you hold the
+   only key that identifies it: this PR's number and head branch. Follow the
+   `task-manage` contract
+   (`~/.claude/skills/task-manage/references/tasks-md-contract.md`) — the
+   queue has **no done state**, so "done" means **deleting the matching
+   entry**, not adding a `[done]` marker. Two cases:
+
+   **Factory-managed project** (present in `C:\dev\factory\config\factory.json`):
+   the queue is `C:\dev\factory\queues\<project>.md`.
+   - `git -C /c/dev/factory pull` first — read current state, not a stale copy.
+   - **Match on an unambiguous key** (same rule as below): find the one task
+     whose `Evidence` records this PR (URL/number) or this head branch, using
+     the immutable task ID (e.g. `tp-014`) in the header line to identify it
+     precisely.
+   - Delete that task's entire block from the queue file; preserve the rest
+     of the file's order and format.
+   - Write a `pruned` ledger event file at
+     `C:\dev\factory\ledger\events\<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-pruned.json`
+     (schema per spec §4.3: `v:1`, `ts`, `actor`, `run`, `event: "pruned"`,
+     `project`, `task: "<id>"`, `detail`, `pr: "<PR URL>"`).
+   - One commit covering both the queue edit and the new event file:
+     `git -C /c/dev/factory add queues/<project>.md ledger/events/<new-file>`
+     then commit `state: prune <id> after merge of PR #<n>`.
+   - `git -C /c/dev/factory push`. **On rejection:** this specific case (one
+     deleted task block + one newly added event file, nothing else touched)
+     is safe to `git -C /c/dev/factory pull --rebase` rather than the full
+     discard-and-rebuild dance — a concurrent writer can only have appended
+     other event files or edited other tasks, so a rebase can't silently
+     reclaim a task someone else is still working. Retry the push once after
+     the rebase; if it fails again, **leave the commit as-is locally** (do
+     not force-push, do not loop) and tell the user to resolve/push it
+     manually.
+
+   **Non-factory project** (a local `TASKS.md`, if the project keeps one):
    - **Match on an unambiguous key.** Find the one task whose `Evidence` records
      *this* PR (URL/number) or *this* head branch — tasks in these repos embed
      both (e.g. `PR …/pull/11`, `branch task/use-album-actions-hook`). Delete
@@ -346,8 +382,9 @@ symptom, apply the fix, don't re-debug from scratch.
 
 A tight summary: PR # merged (merge SHA + method), deploy status (READY +
 production URL/alias, or "auto-deploy verified"), and cleanup outcome — branch
-and worktree removal, the local `<base>` fast-forward, and whether a `TASKS.md`
-entry was pruned (or why it was left) — including anything left for the user and
-why. If the local `<base>` wasn't fast-forwarded, a worktree/branch wasn't
-removed, or a task was left in the queue, name it and give the one-liner to
-finish it.
+and worktree removal, the local `<base>` fast-forward, and whether a queue
+entry (factory `queues/<project>.md` task ID, or a local `TASKS.md` entry) was
+pruned (or why it was left) — including anything left for the user and why. If
+the local `<base>` wasn't fast-forwarded, a worktree/branch wasn't removed, a
+task was left in the queue, or the factory push needed manual resolution after
+a failed rebase retry, name it and give the one-liner to finish it.

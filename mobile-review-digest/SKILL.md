@@ -5,6 +5,16 @@ description: Generate the daily review digest — one self-contained HTML page (
 
 # Mobile Review Digest (v2)
 
+> **Deprecation note:** superseded by the factory dashboard
+> (`C:\dev\factory`, spec §6) for factory-managed projects — the dashboard
+> reads factory queue/proposal/ledger state directly and is built on every
+> factory push plus an hourly refresh, so it replaces this digest's "Tasks"
+> and "New PRs to review" sections for those projects. This digest's
+> scheduled jobs (Job A/B below) are being retired now that the dashboard
+> covers factory-managed projects. **Keep this skill for non-factory repos
+> until Phase 4**, when the dashboard (or its successor) is expected to
+> cover everything this digest does.
+
 A phone-friendly **HTML page** the user reads at the review-digest Vercel URL. The
 **core is fully deterministic** (a plain `node` script); the LLM only does a tiny
 best-effort enrichment. **No push notifications** (pure pull); freshness is the

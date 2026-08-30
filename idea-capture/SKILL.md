@@ -5,7 +5,15 @@ description: Log future-feature ideas and out-of-scope improvements — the "we 
 
 # /idea-capture
 
-Capture out-of-scope improvements surfaced during work into a per-project `IDEAS.md` so the next session doesn't have to re-derive them. Capturing an idea is low-stakes and easy to undo — it's one line in a plain-text list the user can edit anytime — so the default is to **write the entries directly and report what you logged**, not to ask for sign-off first. The round-trip of drafting, waiting for approval, then writing is friction this skill deliberately skips. You still pause for the few cases where autonomous writing could go wrong (see *When to pause or flag* below): you can't tell where the file should live, or the content looks sensitive.
+Capture out-of-scope improvements surfaced during work into a per-project ideas file so the next session doesn't have to re-derive them. Capturing an idea is low-stakes and easy to undo — it's one line in a plain-text list the user can edit anytime — so the default is to **write the entries directly and report what you logged**, not to ask for sign-off first. The round-trip of drafting, waiting for approval, then writing is friction this skill deliberately skips. You still pause for the few cases where autonomous writing could go wrong (see *When to pause or flag* below): you can't tell where the file should live, or the content looks sensitive.
+
+**For a project present in `C:\dev\factory\config\factory.json`, the ideas
+file is `C:\dev\factory\ideas\<project>.md`** (repo `khe618/factory`), not a
+local `IDEAS.md` — this file is the curator's raw material for drafting
+`proposals/<project>.md` (spec §4.2/§5.2). Everything below about locating,
+scanning, de-duplicating, and formatting entries applies the same way; only
+the file location and the write-then-push mechanics differ, called out
+inline. For any other project, write to the local `IDEAS.md` as described.
 
 ## What belongs in IDEAS.md
 
@@ -42,17 +50,23 @@ Skip proactive capture entirely for trivial work (one-line tweaks, copy edits, f
 
 ## Workflow
 
-1. **Locate the project root.**
+1. **Locate the project root, then check whether it's factory-managed.**
 
-   `IDEAS.md` lives at the project root, not the workspace root and not in a subdirectory.
+   `IDEAS.md` lives at the project root, not the workspace root and not in a subdirectory — unless the project is factory-managed, in which case the file is `C:\dev\factory\ideas\<project>.md` instead (see below).
 
    - Anchor on the files actually edited or worked on this session — not the shell cwd.
    - Walk up from those files looking for the nearest manifest (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `Gemfile`, `composer.json`, `setup.py`, etc.). That directory is the project root.
    - If no manifest is found but a `CLAUDE.md` exists walking up, use the directory containing that `CLAUDE.md`. (Catches one-off top-level scripts in workspaces.)
    - If touched files span **multiple sibling subprojects** (e.g., a monorepo with `apps/web/` and `apps/api/`, or this workspace's case of editing across two top-level folders), **stop and ask** the user which project the ideas belong to — don't pick one silently. Ideas for two different projects should go in two different files.
    - If no anchor can be found at all (genuinely loose scripts in a directory with no manifest and no `CLAUDE.md`), ask the user where the file should live.
+   - Once the project is identified, check its name against
+     `C:\dev\factory\config\factory.json`'s `projects` keys. Present →
+     factory-managed: the target file is `C:\dev\factory\ideas\<project>.md`
+     (`git -C /c/dev/factory pull` first, to read current content). Absent →
+     legacy: the target file is the local `IDEAS.md` as described throughout
+     this skill.
 
-2. **Read the existing `IDEAS.md`** if it exists. You need to know what's already there to avoid logging duplicates. If it doesn't exist, you'll create it with the header template below.
+2. **Read the existing ideas file** if it exists. You need to know what's already there to avoid logging duplicates. If it doesn't exist, you'll create it with the header template below.
 
 3. **Scan the conversation for candidate ideas.**
 
@@ -86,14 +100,23 @@ Skip proactive capture entirely for trivial work (one-line tweaks, copy edits, f
 
    When you're **not sure** whether two entries are really the same, keep both rather than dropping or merging — a near-duplicate is visible in your report and trivially deleted, but a wrongly-dropped idea vanishes silently with nobody having seen it. Reserve drop/merge for cases where the overlap is clear.
 
-6. **Append to `IDEAS.md`.**
+6. **Append to the ideas file.**
 
    - If the file doesn't exist, create it with the header template below, then add the new entries beneath.
    - If the file exists and has sections (e.g., `## UI`, `## Backend`, `## Polish`), slot each new entry into the most appropriate section. Don't restructure the file without the user's OK.
    - If the file is a flat list, add new entries to the bottom. If you're adding 3+ entries that naturally fall into different groups, you can suggest introducing sections — but only suggest, don't restructure unilaterally.
    - If the file exists but uses a totally different format (someone hand-rolled it), leave the existing structure alone and append your new entries beneath in the format below. Don't reformat someone else's file.
+   - **Factory-managed only — commit and push, best-effort.** After writing
+     `ideas/<project>.md`: `git -C /c/dev/factory add ideas/<project>.md` then
+     commit `state: idea for <project>`, then `git -C /c/dev/factory push`.
+     Push is **best-effort — never block the session on a failed push.** On
+     rejection or any push error, leave the commit sitting locally (don't
+     retry, don't force, don't discard-and-rebuild — an idea-file append has
+     no correctness requirement worth that ceremony) and just note it in your
+     report ("committed locally; push failed, will go out next time
+     something else pushes to factory").
 
-7. **Report what you logged.** Because there's no draft step, this report is the user's review surface — so do list what you wrote, compactly. Lead with "Logged N ideas to `<path>`:" then the entries as title + one-line each. Keep it tight (glance-and-move-on); the user edits the file directly if anything's off. This is also where you raise any flags from the *pause or flag* cases below (a bug, a spec-sized entry, a contradiction).
+7. **Report what you logged.** Because there's no draft step, this report is the user's review surface — so do list what you wrote, compactly. Lead with "Logged N ideas to `<path>`:" then the entries as title + one-line each. Keep it tight (glance-and-move-on); the user edits the file directly if anything's off. This is also where you raise any flags from the *pause or flag* cases below (a bug, a spec-sized entry, a contradiction), and where you note a factory push failure per step 6.
 
 ## Entry format
 
