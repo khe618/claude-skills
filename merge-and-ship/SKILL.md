@@ -284,9 +284,10 @@ discard uncommitted work to make cleanup easier.
      precisely.
    - Delete that task's entire block from the queue file; preserve the rest
      of the file's order and format.
+   - Then renumber the remaining headers 1..N (the validator rejects gaps); IDs stay untouched.
    - Write a `pruned` ledger event file at
      `C:\dev\factory\ledger\events\<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-pruned.json`
-     (schema per spec §4.3: `v:1`, `ts`, `actor`, `run`, `event: "pruned"`,
+     (schema per spec §4.3: `v:1`, `ts`, `actor: "local:<project>"`, `run`, `event: "pruned"`,
      `project`, `task: "<id>"`, `detail`, `pr: "<PR URL>"`).
    - One commit covering both the queue edit and the new event file:
      `git -C /c/dev/factory add queues/<project>.md ledger/events/<new-file>`

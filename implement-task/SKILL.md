@@ -76,9 +76,8 @@ for the same review.
      two.
    - `git -C /c/dev/factory pull`.
    - Build **one commit** containing exactly two changes: (a) the queue flip
-     `[open] → [in progress]` for the chosen task, with
-     `Evidence: claimed <ISO ts> by local:<session-short-id>` appended, and
-     (b) a new ledger event file
+     `[open] → [in progress]` for the chosen task, then append the lease to the existing `- Evidence:` line as `claimed <ISO ts> by local:<session-short-id>` (separated by `; `) — never add a second `- Evidence:` bullet; the parser keeps only the last one. (b) Add
+     a new ledger event file
      `ledger/events/<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-claimed.json`
      (schema per spec §4.3: `v:1`, `ts`, `actor: "local:<project>"`,
      `run: "local:<session-short-id>"`, `event: "claimed"`, `project`,

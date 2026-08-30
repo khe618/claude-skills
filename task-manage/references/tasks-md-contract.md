@@ -43,6 +43,8 @@ exactly one state marker and a fixed set of sub-fields.
    - Done when: Local checks or the merge condition proving completion.
 ```
 
+After any removal or insertion, renumber the list headers so they run strictly 1..N in file order — the state validator hard-errors on non-sequential numbering. Renumbering changes only the leading `N.`; task IDs (`tp-014`) never change.
+
 ## State model — base two states, extended to three on the canonical queue
 
 Base contract, each task is either:

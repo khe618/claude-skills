@@ -75,7 +75,7 @@ the contract is the *format*.
    skeptical eye on your own removals and promotions. See "Adversarial
    self-review" below. This is the gate that matters most when this skill runs
    autonomously, because there is no human checking the result.
-7. Write or update the queue following the contract format exactly. Before
+7. Write or update the queue following the contract format exactly. Whenever tasks are added, removed, or reordered, renumber headers strictly 1..N; never change a task's ID. Before
    writing, verify every task carries a non-empty `Objective:` line stating the
    concrete change — it's the one required field and the line the review digest
    surfaces. If you can't articulate the objective, the item isn't agent-ready;
@@ -85,7 +85,7 @@ the contract is the *format*.
    queue/proposals/ideas edit made this run, plus one `pruned` ledger event
    file per task removed this run (filename
    `<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-pruned.json`, schema per the ledger
-   contract, spec §4.3). Commit message: `state: curate <project> (promote N,
+   contract, spec §4.3, with `actor: "local:<project>"`). Commit message: `state: curate <project> (promote N,
    remove M, reorder)` (omit clauses that don't apply). Push with the
    discard-and-rebuild rule (spec §4.4): if the push is rejected, `git -C
    /c/dev/factory fetch && git -C /c/dev/factory reset --hard origin/main`,
