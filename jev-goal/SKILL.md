@@ -18,7 +18,7 @@ Script: `~/.claude/skills/jev-goal/scripts/grade.mjs` (Node 22+, key in `scripts
 3. **Do the work** as normal (other skills still apply: TDD, debugging, verification).
 4. **Grade:** `node ~/.claude/skills/jev-goal/scripts/grade.mjs grade <file>`.
 5. **Loop:** exit 1 means some criteria failed. The output names them. Fix, then grade again. Repeat until exit 0.
-6. **Report** the final PASS table to the user, plus the round count.
+6. **Report.** On PASS the script prints a block between `--- jev-goal confirmation` and `--- end confirmation ---`: the task, when the criteria were frozen, the round count, and a table of every criterion with its question, check mode, and result. Paste that block verbatim into the final message, then summarise the work. The user reads it as proof of what was promised before the work started and how each promise was checked.
 
 Exit codes: `0` pass · `1` fail, keep working · `2` lock/usage error · `3` maxRounds hit, stop and report · `4` grader unavailable (rate limit etc.), wait 60-120s with a background sleep and grade again; not a verdict.
 

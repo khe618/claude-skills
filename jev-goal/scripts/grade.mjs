@@ -127,6 +127,7 @@ async function grade() {
 
   if (passed) {
     console.log(`VERDICT: PASS. All ${rows.length} criteria met (threshold ${spec.threshold}, tokens ${usage}).`);
+    printConfirmation(rows, round);
     process.exit(0);
   }
   console.log(`VERDICT: FAIL. ${failed.length} of ${rows.length} criteria not met (threshold ${spec.threshold}, tokens ${usage}).`);
@@ -136,6 +137,26 @@ async function grade() {
   }
   console.log('Fix the failing criteria, then run grade again. Do not edit the criteria file.');
   process.exit(1);
+}
+
+// Printed once on PASS. The agent pastes this block verbatim in its final report so the user
+// sees exactly what was promised up front and how each promise was checked.
+function printConfirmation(rows, round) {
+  const lock = readLock();
+  const base = lock.baseCommit ? lock.baseCommit.slice(0, 7) : 'no git base';
+  console.log('');
+  console.log('--- jev-goal confirmation (paste this in the final report) ---');
+  console.log(`Task: ${spec.task}`);
+  console.log(`Criteria frozen ${lock.frozenAt} at base ${base}; all met in round ${round}/${spec.maxRounds}.`);
+  console.log('');
+  console.log('| # | Criterion | Check | Result |');
+  console.log('|---|---|---|---|');
+  spec.criteria.forEach((c, i) => {
+    const r = rows.find((x) => x.id === c.id);
+    const result = r.check === 'exit0' ? `exit ${r.exits.join(',')}` : `Jev P(true)=${r.p.toFixed(2)}`;
+    console.log(`| ${i + 1} | ${c.question} | ${r.check} | ${result} |`);
+  });
+  console.log('--- end confirmation ---');
 }
 
 async function askJev(criteria, evidence) {
