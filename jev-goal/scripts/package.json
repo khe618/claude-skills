@@ -1,0 +1,9 @@
+{
+  "name": "gev-gate-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ai": "^7.0.105",
+    "dotenv": "^17.0.0"
+  }
+}
