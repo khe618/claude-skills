@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { makeBuilder } from './helpers/transcript-builder.mjs';
 import {
   parseTranscript, isHeadless, isHumanPrompt, entryText, lastHumanPromptIndex, chain, segment, segmentBefore,
-  finalAssistantText, toolCalls, summarize, freezeInvocations, sentinelPositions, isMutating, extractNudgeReason,
+  finalAssistantText, toolCalls, summarize, freezeInvocations, sentinelPositions, isMutating, extractNudgeReason, backgroundDispatch,
 } from '../lib/transcript.mjs';
 
 test('parseTranscript skips bad lines, sidechain, and non user/assistant types', () => {
@@ -182,4 +182,33 @@ test('sentinelPositions finds our sentinel anywhere in a feedback entry', () => 
   assert.deepEqual(sentinelPositions(e, 'jev-stop-nudge'), [1]);
   assert.deepEqual(sentinelPositions(e, 'jev-goal-gate'), [3]);
   assert.deepEqual(sentinelPositions(e, 'nope'), []);
+});
+
+test('toolCalls carries a short resultPreview and backgroundDispatch recognises async launches', () => {
+  const b = makeBuilder();
+  b.human('go');
+  const a = b.toolUse('Agent', { description: 'review', prompt: 'x' });
+  b.toolResult(a, 'Async agent launched successfully. agentId: abc');
+  b.toolUse('Read', { file_path: 'a' });
+  const calls = toolCalls(b.entries());
+  assert.equal(calls[0].resultPreview, 'Async agent launched successfully. agentId: abc');
+  assert.equal(calls[1].resultPreview, '');
+  assert.equal(backgroundDispatch(calls), true);
+  const c = makeBuilder();
+  c.human('go');
+  const bg = c.toolUse('Bash', { command: 'npm test', run_in_background: true });
+  c.toolResult(bg, 'Command running in background with ID: q');
+  assert.equal(backgroundDispatch(toolCalls(c.entries())), true);
+  const d = makeBuilder();
+  d.human('go');
+  const fg = d.toolUse('Bash', { command: 'npm test' });
+  d.toolResult(fg, '12 passing');
+  const ag = d.toolUse('Agent', { description: 'sync review', prompt: 'x' });
+  d.toolResult(ag, 'Spec compliant. Approved.');
+  assert.equal(backgroundDispatch(toolCalls(d.entries())), false, 'a synchronous agent result is not a background wait');
+  const e = makeBuilder();
+  e.human('go');
+  const sm = e.toolUse('SendMessage', { to: 'a1b2c3', message: 'fix round 1' });
+  e.toolResult(sm, '{"success":true}');
+  assert.equal(backgroundDispatch(toolCalls(e.entries())), true, 'resuming a subagent by message is a background wait');
 });

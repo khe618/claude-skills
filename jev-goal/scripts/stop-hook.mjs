@@ -32,7 +32,7 @@ async function main() {
   const record = {
     at: new Date().toISOString(), session: input.session_id ?? null, cwd: input.cwd ?? null, mode,
     stopHookActive: input.stop_hook_active ?? null,
-    nudgeCount: 0, gateCount: 0, gate: null, batteryRan: false, answers: null, fired: null, wouldBlock: false, blocked: false,
+    nudgeCount: 0, gateCount: 0, gate: null, batteryRan: false, skipped: null, answers: null, fired: null, wouldBlock: false, blocked: false,
     reason: null, finalMessagePreview: null, usage: null, error: null, label: null,
   };
   let decision = null;
@@ -50,7 +50,7 @@ async function main() {
     const {
       askJev, JevError, RULE, truncate, capList, redact,
       parseTranscript, isHeadless, chain, segment, segmentBefore, finalAssistantText, toolCalls, freezeInvocations,
-      sentinelPositions, lastHumanPromptIndex, entryText, isMutating, extractNudgeReason, WAITING_TOOLS, EDIT_TOOLS,
+      sentinelPositions, lastHumanPromptIndex, entryText, isMutating, extractNudgeReason, backgroundDispatch, WAITING_TOOLS, EDIT_TOOLS,
       goalStates, gateDecision,
     } = libs;
 
@@ -88,6 +88,20 @@ async function main() {
     if (!segCalls.some((c) => isMutating(c.name))) return;
     if (segCalls.some((c) => WAITING_TOOLS.has(c.name))) return;
     if (record.nudgeCount >= NUDGE_CAP) return;
+    // The segment boundary is the last string-content user entry. When that entry is another hook's feedback
+    // (not the human prompt and not this hook's own nudge), the reply is an answer to that hook, and the request
+    // was already judged at the previous stop. Evaluating it again compares the original prompt with a one-line
+    // hook answer and reads as unmet work.
+    const boundary = entries[entries.length - seg.length - 1];
+    if (boundary && boundary.isMeta === true && !/jev-stop-nudge#[0-9a-f]{8}/.test(entryText(boundary))) {
+      record.skipped = 'post_hook_segment';
+      return;
+    }
+    // Work handed to a background subagent, a background Bash command, or a Monitor is not work left undone.
+    if (backgroundDispatch(segCalls)) {
+      record.skipped = 'background_wait';
+      return;
+    }
     let previousNudge = null;
     if (record.nudgeCount === 1) {
       const pos = nudgePositions[0];
@@ -141,7 +155,7 @@ async function main() {
     if (record.blocked) {
       try { process.stdout.write(JSON.stringify({ decision: 'block', reason: decision }) + '\n'); } catch { /* EPIPE etc: never let a write failure skip the log append below */ }
     }
-    if (record.gate || record.batteryRan || record.error) appendLog(record);
+    if (record.gate || record.batteryRan || record.skipped || record.error) appendLog(record);
   }
 }
 
