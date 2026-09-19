@@ -54,6 +54,16 @@ Optional keys: `threshold` (default 0.8), `maxRounds` (default 10), `cwd` (proje
 
 Jev reads evidence; it has no taste and does not reason. For open-ended goals ("make it look good", "make the docs clear", "clean this up") the criteria you can write are proxies: fonts loaded, a palette defined, a section present, a function shorter than N lines. A competent first draft clears proxies on round one, so grading will not push back on quality. Treat the criteria as the floor, and do the judgement check yourself: open the page in the browser, read the docs as a newcomer would, review the diff. Then say in the report what the confirmation block covers and what it does not. Do not stretch a `jev` question into "is this well designed?"; Jev will answer from whatever text it sees and the number will mean nothing.
 
+## The Stop hook (goal gate + nudge)
+
+A Stop hook (`scripts/stop-hook.mjs`, registered in `~/.claude/settings.json`) backs this skill:
+
+- **Goal gate.** Criteria you froze in this session (the hook finds your `grade.mjs freeze` command in the transcript) hold the session until they pass, hit `maxRounds`, or the gate has blocked three times. Editing a file after a PASS reopens the goal; grade again. A PASS in the current turn must be followed by the confirmation block, token line included, in the final message. If the criteria cannot be met, say why in one sentence and stop; the gate yields after three blocks and Claude Code itself stops honouring blocks after eight.
+- **Nudge.** With no goal active, after a turn that used a mutating tool, the hook asks Jev whether the final message leaves the latest request unfinished (no question to the user, no external blocker, no refusal, but promised or missing work). If so it blocks once, or twice when real progress followed the first nudge. A conversation-only or research-only turn is never nudged.
+- **Modes.** `JEV_STOP_HOOK` is `off`, `shadow` (log only, no blocking), or `enforce`. Set `off` in a project's `.claude/settings.json` `env` to exclude that repository. Headless `claude -p` and SDK runs are detected from the transcript (`entrypoint: sdk-cli`) and ignored; `--safe-mode` disables hooks entirely as well.
+- **Data.** When the nudge runs, the redacted latest prompt, the redacted preceding assistant reply, the redacted final message, and tool names with file paths or the first word of a shell command go to Vercel AI Gateway and TypeSafe AI. Full commands, tool outputs, file contents, and earlier prompts never leave the machine. Redaction is a floor, not a guarantee.
+- **Log and tuning.** Every evaluation appends to `~/.claude/jev-stop-hook/log.jsonl`. `node scripts/stop-hook-report.mjs` prints it; `--label <n> good|bad` records your verdict. Run in `shadow` for about a week, label, adjust the thresholds at the top of `stop-hook.mjs`, then switch to `enforce`. The hook fails open on any grader error, including the free-tier rate limit of roughly eight calls per five minutes.
+
 ## Rationalizations that mean STOP
 
 | Thought | Reality |
