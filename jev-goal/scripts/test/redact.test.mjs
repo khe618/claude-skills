@@ -33,3 +33,14 @@ test('redact leaves ordinary prose and paths alone', () => {
   const s = 'Edited src/routes/upload.ts and ran npm test; 12 passing. The key idea is caching.';
   assert.equal(redact(s), s);
 });
+
+test('redact leaves words that merely contain key/secret/token alone', () => {
+  for (const s of ['monkey: banana bread recipe', 'The secretary: please forward this email', 'Keyword: caching is the key idea', 'whiskey: aged 12 years']) {
+    assert.equal(redact(s), s, s);
+  }
+});
+
+test('redact never bleeds across a newline after a colon', () => {
+  assert.equal(redact('Secret:\nRotate keys quarterly.'), 'Secret:\nRotate keys quarterly.');
+  assert.equal(redact('API_TOKEN:\nSetup instructions follow.'), 'API_TOKEN:\nSetup instructions follow.');
+});

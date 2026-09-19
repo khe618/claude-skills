@@ -7,7 +7,7 @@ const PATTERNS = [
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
 ];
-const ASSIGNMENT = /\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Za-z0-9_]*)\s*[=:]\s*["']?([^\s"']{4,})["']?/gi;
+const ASSIGNMENT = /\b((?:[A-Za-z0-9]+_)*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)(?:_[A-Za-z0-9]+)*)\b[ \t]*[=:][ \t]*["']?[^\s"']{4,}["']?/gi;
 
 export function redact(text) {
   let s = text ?? '';
