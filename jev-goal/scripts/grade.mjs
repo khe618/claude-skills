@@ -10,21 +10,13 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import dotenv from 'dotenv';
+import { askJev as libAskJev, findBash, truncate, JevError } from './lib/jev.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: join(here, '.env'), quiet: true, override: false });
-
-const MODEL = 'typesafe-ai/jev';
-const OUTPUT_HEAD = 24_000; // chars kept from the start of each command's output
-const OUTPUT_TAIL = 8_000; // chars kept from the end
 const DEFAULTS = { threshold: 0.8, maxRounds: 10, timeoutMs: 600_000 };
 // check modes: "exit0" passes iff every evidence command exits 0 (deterministic, no model call);
 // "jev" sends the evidence output to Jev and passes iff P(true) >= threshold.
 const CHECKS = ['jev', 'exit0'];
-let bashPath; // memoised by findBash(); declared before the top-level await below
 
 const [, , cmd, fileArg] = process.argv;
 if (!cmd || !fileArg || !['freeze', 'grade', 'status'].includes(cmd)) usage();
@@ -220,7 +212,6 @@ function printConfirmation(rows, round) {
 }
 
 async function askJev(criteria, evidence) {
-  if (!process.env.AI_GATEWAY_API_KEY) die(2, `AI_GATEWAY_API_KEY missing (set it in ${join(here, '.env')})`);
   const questions = {};
   for (const c of criteria) {
     questions[c.id] = {
@@ -234,23 +225,14 @@ async function askJev(criteria, evidence) {
       },
     };
   }
-  // Only hand Jev the evidence its questions cite.
   const cited = new Set(criteria.flatMap((c) => c.evidence));
   const state = { task: spec.task, evidence: evidence.filter((e) => cited.has(e.command)) };
-
-  const { experimental_evaluate: evaluate } = await import('ai');
   try {
-    return await evaluate({ model: MODEL, state, questions });
+    return await libAskJev({ questions, state, timeoutMs: 0 }); // 0 = no abort, as before the refactor
   } catch (e) {
-    // Gateway/provider failure, not a criteria failure: no round is recorded.
-    const last = e?.errors?.at(-1) ?? e;
-    const status = last?.statusCode ?? last?.cause?.statusCode;
-    const msg = (last?.message ?? String(e)).split('\n')[0];
-    const hint = status === 429 ? 'Rate limited: wait 60-120s and run grade again.'
-      : status === 402 ? 'Out of gateway credits or budget.'
-      : status === 401 ? 'AI_GATEWAY_API_KEY rejected.'
-      : 'Transient failure: run grade again.';
-    die(4, `GRADER UNAVAILABLE (${status ?? 'no status'}): ${msg}\n${hint} This is not a verdict on the criteria.`);
+    if (e instanceof JevError && e.code === 'no_key') die(2, e.message);
+    const status = e.status;
+    die(4, `GRADER UNAVAILABLE (${status ?? 'no status'}): ${e.message}\n${e.hint} This is not a verdict on the criteria.`);
   }
 }
 
@@ -297,23 +279,9 @@ function runCommand(command, baseCommit = readLock().baseCommit) {
   if (r.error) output += `\n[spawn error] ${r.error.message}`;
   output = output.replace(/\u001b\[[0-9;]*m/g, '');
   const length = output.length;
-  if (length > OUTPUT_HEAD + OUTPUT_TAIL) {
-    const omitted = length - OUTPUT_HEAD - OUTPUT_TAIL;
-    output = output.slice(0, OUTPUT_HEAD) + `\n...[${omitted} chars omitted]...\n` + output.slice(-OUTPUT_TAIL);
-  }
+  output = truncate(output);
   const exitCode = r.status ?? (r.signal ? `signal ${r.signal}` : 'spawn-failed');
   return { exitCode, output, length };
-}
-
-function findBash() {
-  if (bashPath !== undefined) return bashPath;
-  if (process.platform !== 'win32') {
-    bashPath = '/bin/bash';
-    return bashPath;
-  }
-  const candidates = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'];
-  bashPath = candidates.find((p) => existsSync(p)) ?? null;
-  return bashPath;
 }
 
 function sha256File(p) {
