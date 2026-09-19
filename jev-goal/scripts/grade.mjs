@@ -9,9 +9,10 @@
 // Exit codes: 0 all criteria pass / 1 some fail / 2 usage or lock error / 3 maxRounds reached / 4 grader unavailable
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve, join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { askJev as libAskJev, findBash, truncate, JevError } from './lib/jev.mjs';
+import { confirmationToken } from './lib/token.mjs';
 
 const DEFAULTS = { threshold: 0.8, maxRounds: 10, timeoutMs: 600_000 };
 // check modes: "exit0" passes iff every evidence command exits 0 (deterministic, no model call);
@@ -123,7 +124,11 @@ function status() {
 async function grade() {
   if (!existsSync(lockFile)) die(2, 'criteria are not frozen. Run `freeze` BEFORE doing any work, then grade.');
   verifyLock(true);
-  const round = readRounds().length + 1;
+  const priorRounds = readRounds();
+  if (priorRounds.length >= spec.maxRounds) {
+    die(3, `maxRounds reached (${priorRounds.length}/${spec.maxRounds}). Report the failing criteria to the user, or start a new criteria file. No round was run.`);
+  }
+  const round = priorRounds.length + 1;
   console.log(`jev-goal round ${round}/${spec.maxRounds}: ${spec.task}`);
   console.log(`project: ${projectRoot}`);
 
@@ -179,7 +184,7 @@ async function grade() {
 
   if (passed) {
     console.log(`VERDICT: PASS. All ${rows.length} criteria met (threshold ${spec.threshold}, tokens ${usage}).`);
-    printConfirmation(rows, round);
+    printConfirmation(rows, round, record.at);
     process.exit(0);
   }
   console.log(`VERDICT: FAIL. ${failed.length} of ${rows.length} criteria not met (threshold ${spec.threshold}, tokens ${usage}).`);
@@ -193,13 +198,14 @@ async function grade() {
 
 // Printed once on PASS. The agent pastes this block verbatim in its final report so the user
 // sees exactly what was promised up front and how each promise was checked.
-function printConfirmation(rows, round) {
+function printConfirmation(rows, round, at) {
   const lock = readLock();
   const base = lock.baseCommit ? lock.baseCommit.slice(0, 7) : 'no git base';
   console.log('');
   console.log('--- jev-goal confirmation (paste this in the final report) ---');
   console.log(`Task: ${spec.task}`);
   console.log(`Criteria frozen ${lock.frozenAt} at base ${base}; all met in round ${round}/${spec.maxRounds}.`);
+  console.log(`token: ${confirmationToken(basename(file, '.json'), lock.sha256, round, at)}`);
   console.log('');
   console.log('| # | Criterion | Check | Result |');
   console.log('|---|---|---|---|');
