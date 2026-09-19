@@ -9,14 +9,14 @@ import { makeBuilder } from './helpers/transcript-builder.mjs';
 import { makeProject, writeCriteria, freezeFile, appendRound } from './helpers/goal-dir.mjs';
 import { confirmationToken } from '../lib/token.mjs';
 
-function run(transcriptPath, { mode = 'enforce', answers, error, cwd = 'C:\\proj' } = {}) {
+function run(transcriptPath, { mode = 'enforce', answers, error, cwd = 'C:\\proj', stopHookActive = false } = {}) {
   const logDir = mkdtempSync(join(tmpdir(), 'jev-log-'));
   const log = join(logDir, 'log.jsonl');
   const env = { JEV_STOP_HOOK: mode, JEV_STOP_HOOK_LOG: log };
   if (answers) env.JEV_FAKE_ANSWERS = JSON.stringify(answers);
   if (error) env.JEV_FAKE_ERROR = String(error);
   delete process.env.JEV_FAKE_ANSWERS; delete process.env.JEV_FAKE_ERROR;
-  const input = JSON.stringify({ session_id: 's1', transcript_path: transcriptPath, cwd, stop_hook_active: false, hook_event_name: 'Stop' });
+  const input = JSON.stringify({ session_id: 's1', transcript_path: transcriptPath, cwd, stop_hook_active: stopHookActive, hook_event_name: 'Stop' });
   const r = runScript('stop-hook.mjs', [], { env, input });
   const records = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   const out = r.stdout.trim();
@@ -283,6 +283,11 @@ test('missing gateway key fails open and is logged as no_key', () => {
 test('stop_hook_active is recorded on the log entry but never gates behaviour', () => {
   const r = run(workingTurn().write(), { answers: UNFINISHED });
   assert.equal(r.records[0].stopHookActive, false);
+  // stop_hook_active: true (Claude Code is already re-invoking after a prior block) must not suppress
+  // a genuine block: the gate/battery logic pays no attention to it.
+  const r2 = run(workingTurn().write(), { answers: UNFINISHED, stopHookActive: true });
+  assert.ok(r2.decision, 'block still fires with stop_hook_active: true');
+  assert.equal(r2.records[0].stopHookActive, true);
 });
 
 test('hook stays silent and exits 0 when a library fails to load', () => {

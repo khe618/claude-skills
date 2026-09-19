@@ -238,7 +238,9 @@ async function askJev(criteria, evidence) {
   } catch (e) {
     if (e instanceof JevError && e.code === 'no_key') die(2, e.message);
     const status = e.status;
-    die(4, `GRADER UNAVAILABLE (${status ?? 'no status'}): ${e.message}\n${e.hint} This is not a verdict on the criteria.`);
+    const message = String(e.message ?? e).split('\n')[0];
+    const hint = e.hint || 'Transient failure: run grade again.';
+    die(4, `GRADER UNAVAILABLE (${status ?? 'no status'}): ${message}\n${hint} This is not a verdict on the criteria.`);
   }
 }
 

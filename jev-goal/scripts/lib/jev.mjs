@@ -62,11 +62,11 @@ export async function askJev({ questions, state, timeoutMs = 25000, maxRetries =
   if (!process.env.AI_GATEWAY_API_KEY) {
     throw new JevError('no_key', `AI_GATEWAY_API_KEY missing (set it in ${join(scriptsDir, '.env')})`);
   }
-  const { experimental_evaluate: evaluate } = await import('ai');
   // timeoutMs 0 means no abort at all (grade.mjs keeps its historical no-timeout behaviour).
   const ac = timeoutMs > 0 ? new AbortController() : null;
   const timer = ac ? setTimeout(() => ac.abort(), timeoutMs) : null;
   try {
+    const { experimental_evaluate: evaluate } = await import('ai');
     const r = await evaluate({ model: MODEL, state, questions, maxRetries, ...(ac ? { abortSignal: ac.signal } : {}) });
     return { answers: r.answers, usage: { inputTokens: r.usage?.inputTokens, outputTokens: r.usage?.outputTokens } };
   } catch (e) {

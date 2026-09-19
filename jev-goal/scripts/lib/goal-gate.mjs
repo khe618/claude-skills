@@ -39,8 +39,10 @@ function readOne(file) {
     try { lock = JSON.parse(readFileSync(lockPath, 'utf8')); } catch { lock = null; }
   }
   if (lock && typeof lock.sha256 === 'string') { out.frozen = true; out.lockSha256 = lock.sha256; out.frozenAt = lock.frozenAt ?? null; }
-  if (!existsSync(file)) return { ...out, state: 'invalid', error: 'criteria file missing' };
-  if (!out.frozen) return { ...out, state: 'invalid', error: existsSync(lockPath) ? 'lock file unparseable' : 'lock file missing (freeze did not complete)' };
+  // A missing criteria file, or a missing lock file, is the documented way to abandon a goal: release
+  // it rather than treating it as a corrupt/invalid state that would keep blocking the session.
+  if (!existsSync(file) || !existsSync(lockPath)) return { ...out, state: 'released', frozen: false, error: 'criteria or lock file missing' };
+  if (!out.frozen) return { ...out, state: 'invalid', error: 'lock file unparseable' };
   let spec;
   try { spec = JSON.parse(readFileSync(file, 'utf8')); } catch (e) { return { ...out, state: 'invalid', error: `criteria unparseable: ${e.message}` }; }
   out.task = typeof spec.task === 'string' ? spec.task : slug;
@@ -65,6 +67,7 @@ export function goalStates(ownedFiles, { editTimestamps = [] } = {}) {
   }
   const lastEditMs = editTimestamps.map(ms).filter((t) => t !== null).reduce((a, b) => Math.max(a, b), -Infinity);
   for (const s of states) {
+    if (s.state === 'released') continue; // takes no part in supersession, stays released
     if (s.frozen && newest.get(s.base) !== s) { s.state = 'superseded'; continue; }
     if (s.state === 'invalid') continue;
     const lr = s.lastRound;
@@ -84,7 +87,7 @@ const GRADE = 'node ~/.claude/skills/jev-goal/scripts/grade.mjs grade';
 
 export function gateDecision(states, { gateCount, latestPromptIso, finalText }) {
   if (gateCount >= 3) return { yielded: true };
-  const live = states.filter((s) => s.state !== 'superseded');
+  const live = states.filter((s) => s.state !== 'superseded' && s.state !== 'released');
   const invalid = live.filter((s) => s.state === 'invalid');
   if (invalid.length) {
     const lines = invalid.map((s) => `  ${basename(s.file)}: ${s.error}`).join('\n');

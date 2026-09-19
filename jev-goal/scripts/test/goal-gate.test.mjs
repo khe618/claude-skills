@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, appendFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { basename } from 'node:path';
 import { makeProject, writeCriteria, freezeFile, appendRound } from './helpers/goal-dir.mjs';
 import { parseSlug, readRoundsTolerant, goalStates, gateDecision } from '../lib/goal-gate.mjs';
@@ -53,12 +53,22 @@ test('goalStates: open (no rounds), open (failed), passed, reopened, exhausted, 
   const byFile = Object.fromEntries(states.map((s) => [basename(s.file), s.state]));
   assert.deepEqual(byFile, {
     'a.json': 'open', 'b.json': 'open', 'c.json': 'passed', 'd.json': 'reopened', 'e.json': 'exhausted',
-    'f.json': 'invalid', 'g.json': 'superseded', 'g-2.json': 'superseded', 'g-3.json': 'invalid', 'h.json': 'invalid',
+    'f.json': 'invalid', 'g.json': 'superseded', 'g-2.json': 'superseded', 'g-3.json': 'invalid', 'h.json': 'released',
   });
   assert.equal(states.find((s) => s.file === unfrozen).frozen, false);
   assert.equal(states.find((s) => s.file === newest).frozen, true);
   assert.equal(states.find((s) => s.file === failed).lastRound.failed[0], 'a');
   assert.equal(states.find((s) => s.file === exhausted).maxRounds, 1);
+});
+
+test('deleting the criteria file after freezing releases the goal instead of blocking', () => {
+  const { jevDir } = makeProject();
+  const p = writeCriteria(jevDir, 'gone', spec()); freezeFile(p, { frozenAt: T0 });
+  unlinkSync(p);
+  const states = goalStates([p], { editTimestamps: [] });
+  assert.equal(states[0].state, 'released');
+  assert.equal(states[0].frozen, false);
+  assert.equal(gateDecision(states, { gateCount: 0, latestPromptIso: T0, finalText: '' }), null);
 });
 
 test('gateDecision yields at the cap and reports nothing when everything is terminal', () => {

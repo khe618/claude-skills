@@ -32,7 +32,7 @@ The hook runs alongside the two existing Stop hooks (`stop-agent-logs.py`, `stop
 | `scripts/lib/redact.mjs` | `redact(text)` for anything sent off-machine or written to the log preview. |
 | `scripts/stop-hook.mjs` | Entry point. Reads stdin JSON, runs §4, prints the decision. |
 | `scripts/stop-hook-report.mjs` | Prints the shadow log as a table. |
-| `scripts/test/*.test.mjs` + `scripts/test/fixtures/` | `node --test` suites (§9). |
+| `scripts/test/*.test.mjs` | `node --test` suites (§9); tests build temp directories rather than reading fixture files. |
 | `~/.claude/settings.json` | Registers the hook and sets `JEV_STOP_HOOK` (§7). |
 | `~/.claude/jev-stop-hook/log.jsonl` | Append-only evaluation log (§6). |
 
@@ -44,7 +44,7 @@ Steps run in order. Any step that produces a block ends the run. Every other exi
 
 - `JEV_STOP_HOOK` unset or `off`: exit 0. Modes: `off`, `shadow`, `enforce`. Project-level `.claude/settings.json` can set `off` to exclude a repository entirely.
 - `transcript_path` missing or unreadable: exit 0.
-- Headless detection: at implementation time, compare the transcript entries of an interactive session with a `claude -p` session (fields `entrypoint`, `promptSource`, `userType`). If a field reliably distinguishes print mode, exit 0 on it and record the field in this spec. If none does, the hook cannot detect headless runs by itself, and every automation contract on this machine must set `JEV_STOP_HOOK=off` or use `--safe-mode` (the existing pipelines already use `--safe-mode`, per the agent-logs record of 2026-06-28). Either way, the limitation is stated in SKILL.md.
+- Headless detection: any transcript entry with `entrypoint: "sdk-cli"` marks a `claude -p` or SDK run (verified against real transcripts: interactive sessions carry `entrypoint: "cli"`); the hook exits 0. `--safe-mode` disables hooks entirely as well.
 
 ### 4.2 Transcript facts
 
@@ -80,6 +80,7 @@ Runs whenever the session owns at least one criteria file, regardless of the wor
 | State | Condition |
 |---|---|
 | `superseded` | Another owned file with the same base slug and a higher revision exists and is frozen. Base slug and revision come from `^(.*?)(?:-(\d+))?\.json$`, so `task.json`, `task-2.json`, `task-3.json` share base `task`; only the highest frozen revision is live. |
+| `released` | Criteria file or lock file no longer exists. Terminal; takes no part in decisions or supersession. Deleting the file is the documented way to abandon a goal. |
 | `invalid` | Lock present but `sha256` does not match the file (criteria edited after freeze), or lock/rounds unparseable. |
 | `exhausted` | Rounds count is at least `maxRounds` and the last round failed. Terminal. |
 | `passed` | Last round `passed: true`, and no Edit/Write/NotebookEdit tool call in the transcript has a timestamp later than that round's `at`. Terminal. |
@@ -117,7 +118,7 @@ All must hold, otherwise exit 0 (after logging when in shadow mode and the gate 
 }
 ```
 
-`assistantMessageBeforeRequest` makes short replies like "yes, do that" intelligible. Earlier user prompts are deliberately not sent: without their outcomes Jev cannot tell a completed request from an abandoned one, and a status question after finished work would read as unmet. `toolCallsThisSegment` is capped at 60 (first 40, last 20). When `nudgeCount == 1`, `previousNudge` is `{ "reason", "assistantMessageBefore": "<final text of the segment that preceded the nudge, cap 3000>", "mutatingCallsAfter": <count> }`.
+`assistantMessageBeforeRequest` makes short replies like "yes, do that" intelligible. Earlier user prompts are deliberately not sent: without their outcomes Jev cannot tell a completed request from an abandoned one, and a status question after finished work would read as unmet. `toolCallsThisSegment` is capped at 60 entries (first 39, an omission marker, last 20). When `nudgeCount == 1`, `previousNudge` is `{ "reason", "assistantMessageBefore": "<final text of the segment that preceded the nudge, cap 3000>", "mutatingCallsAfter": <count> }`.
 
 **Questions**, all boolean, one `experimental_evaluate` call to `typesafe-ai/jev` with `maxRetries: 0` and a 25 s abort signal. Each carries the `grade.mjs` rule text (true only if the state clearly demonstrates it; if ambiguous, false). Every question is phrased so it can be answered from the message text, not inferred from tool semantics.
 

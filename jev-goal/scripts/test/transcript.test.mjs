@@ -159,6 +159,19 @@ test('freezeInvocations resolves paths against entry cwd and ignores failed free
   ]);
 });
 
+test('freezeInvocations only matches grade.mjs freeze at the start of a command segment', () => {
+  const b = makeBuilder({ cwd: 'C:\\proj' });
+  b.human('go');
+  const grepped = b.toolUse('Bash', { command: 'grep "grade.mjs freeze .claude/jev/x.json" log.txt' });
+  b.toolResult(grepped, 'match found');
+  const echoed = b.toolUse('Bash', { command: 'echo node grade.mjs freeze x.json' });
+  b.toolResult(echoed, 'node grade.mjs freeze x.json');
+  const real = b.toolUse('Bash', { command: 'cd /c/proj && node ~/.claude/skills/jev-goal/scripts/grade.mjs freeze .claude/jev/y.json' });
+  b.toolResult(real, 'frozen');
+  const paths = freezeInvocations(b.entries()).map((p) => p.replace(/\\/g, '/'));
+  assert.deepEqual(paths, ['C:/proj/.claude/jev/y.json']);
+});
+
 test('sentinelPositions finds our sentinel anywhere in a feedback entry', () => {
   const b = makeBuilder();
   b.human('go');

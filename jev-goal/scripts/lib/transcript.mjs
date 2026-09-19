@@ -108,7 +108,12 @@ export function toolCalls(entries) {
   return calls;
 }
 
-const FREEZE_RE = /grade\.mjs["']?\s+freeze\s+("([^"]+)"|'([^']+)'|(\S+))/;
+// Anchored so a command must begin (at the start of the string or of a &&/||/;/|/newline-separated
+// segment) with an optional runner (node, a possibly-quoted path to node, or npx) then the script path
+// ending in grade.mjs, then "freeze". This keeps `grep "grade.mjs freeze x.json" log` or an `echo` of
+// the same text from being mistaken for a real invocation.
+const FREEZE_RE = /^(?:\S*node(?:\.exe)?["']?\s+|npx\s+)?["']?[^\s"']*grade\.mjs["']?\s+freeze\s+("([^"]+)"|'([^']+)'|(\S+))/;
+const SEGMENT_RE = /\s*(?:&&|\|\||;|\||\n)\s*/;
 const MSYS_DRIVE_RE = /^\/([A-Za-z])(\/|$)/; // "/c/proj/x" as Git Bash wrote it, before MSYS argument conversion
 
 function normaliseShellPath(raw) {
@@ -120,12 +125,15 @@ export function freezeInvocations(entries) {
   const out = [];
   for (const call of toolCalls(entries)) {
     if (call.name !== 'Bash' || !call.ok) continue;
-    const m = FREEZE_RE.exec(String(call.input?.command ?? ''));
-    if (!m) continue;
-    const raw = normaliseShellPath(m[2] ?? m[3] ?? m[4]);
-    const cwd = normaliseShellPath(entries[call.index]?.cwd ?? process.cwd());
-    const p = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
-    if (!out.includes(p)) out.push(p);
+    const command = String(call.input?.command ?? '');
+    for (const segment of command.split(SEGMENT_RE)) {
+      const m = FREEZE_RE.exec(segment);
+      if (!m) continue;
+      const raw = normaliseShellPath(m[2] ?? m[3] ?? m[4]);
+      const cwd = normaliseShellPath(entries[call.index]?.cwd ?? process.cwd());
+      const p = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
+      if (!out.includes(p)) out.push(p);
+    }
   }
   return out;
 }

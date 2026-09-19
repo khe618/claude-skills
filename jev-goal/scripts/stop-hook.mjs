@@ -123,7 +123,7 @@ async function main() {
       const p = Number(result.answers[id]?.probability);
       return [id, Number.isFinite(p) ? p : (VETO_IDS.includes(id) ? 1 : 0)];
     }));
-    record.answers = Object.fromEntries(Object.entries(raw).map(([id, p]) => [id, round2(p)])); // rounded for the log only
+    record.answers = raw; // log the raw, unrounded probabilities; toFixed(2) is only for the reason text below
     const triggers = TRIGGER_IDS.filter((id) => raw[id] >= TRIGGER);
     const vetoes = VETO_IDS.filter((id) => id in raw && raw[id] >= VETO);
     record.fired = { triggers, vetoes };
@@ -174,8 +174,6 @@ function nudgeReason(triggers, p, n) {
     'If you can advance the request now, do it. If you are genuinely waiting on the user, say so in one sentence and stop.',
   ].join('\n');
 }
-
-const round2 = (x) => Math.round(Number(x) * 100) / 100;
 
 function appendLog(record) {
   try {

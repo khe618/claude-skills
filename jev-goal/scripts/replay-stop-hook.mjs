@@ -42,7 +42,10 @@ for (const p of points) {
   const appended = logLineCount(log) > before ? lastRecord(log) : null; // only a record THIS run appended counts
   const ranBattery = !!appended?.batteryRan;
   process.stderr.write(`stop point at line ${p}: ${r.stdout.trim() ? 'BLOCK' : 'pass'}${appended ? '' : ' (no record)'}${ranBattery ? ' [jev call]' : ''}\n`);
-  if (ranBattery) { calls++; if (calls < maxCalls) sleepSync(20_000); }
+  // No real gateway call happens under the fake-answer/fake-error test harness, so there is nothing to
+  // rate-limit against; skip the sleep so replay tests run fast. Only a real Jev call needs the delay.
+  const faked = !!(process.env.JEV_FAKE_ANSWERS || process.env.JEV_FAKE_ERROR);
+  if (ranBattery) { calls++; if (calls < maxCalls && !faked) sleepSync(20_000); }
 }
 const rep = spawnSync(process.execPath, [join(here, 'stop-hook-report.mjs'), '--log', log], { encoding: 'utf8' });
 process.stdout.write(rep.stdout);
