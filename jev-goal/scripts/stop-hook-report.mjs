@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const opt = (name) => { const i = args.indexOf(name); const v = i >= 0 ? args[i + 1] : undefined; return v === undefined || v.startsWith('--') ? undefined : v; };
 const logPath = opt('--log') ?? join(homedir(), '.claude', 'jev-stop-hook', 'log.jsonl');
 if (!existsSync(logPath)) { console.log(`no log at ${logPath}`); process.exit(0); }
 const records = readFileSync(logPath, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));

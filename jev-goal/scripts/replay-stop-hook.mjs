@@ -12,10 +12,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const file = args[0];
 if (!file || file.startsWith('--')) { console.error('usage: node replay-stop-hook.mjs <transcript.jsonl> [--max-calls N] [--max-points N] [--mode shadow|enforce]'); process.exit(2); }
-const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
-const maxCalls = Number(opt('--max-calls', 5));
-const maxPoints = Number(opt('--max-points', 200));
+const opt = (n, d) => { const i = args.indexOf(n); const v = i >= 0 ? args[i + 1] : undefined; return v === undefined || v.startsWith('--') ? d : v; };
+const maxCalls = Number.isFinite(Number(opt('--max-calls', 5))) ? Number(opt('--max-calls', 5)) : 5;
+const maxPoints = Number.isFinite(Number(opt('--max-points', 200))) ? Number(opt('--max-points', 200)) : 200;
 const mode = opt('--mode', 'shadow');
+if (mode !== 'shadow' && mode !== 'enforce') { console.error('usage: --mode shadow|enforce'); process.exit(2); }
 
 const raw = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim()); // raw lines kept so slices are byte-faithful
 const entries = raw.map((l) => { try { return JSON.parse(l); } catch { return null; } });

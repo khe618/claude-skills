@@ -31,3 +31,8 @@ test('--label rewrites the record', () => {
   const recs = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(recs[0].label, null); assert.equal(recs[1].label, 'bad');
 });
+
+test('--log as a trailing bare flag falls back to the default path instead of crashing', () => {
+  const r = runScript('stop-hook-report.mjs', ['--log']);
+  assert.equal(r.status, 0, r.stderr);
+});
