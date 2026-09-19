@@ -2,7 +2,7 @@
 // jev-goal: pre-registered acceptance criteria graded by TypeSafe AI's Jev
 // (an evaluation model on Vercel AI Gateway) from evidence the script gathers itself.
 //
-//   node grade.mjs freeze <criteria.json>   lock the criteria (sha256) before any work starts
+//   node grade.mjs freeze <criteria.json>   dry-run every evidence command, then lock the criteria (sha256) before any work starts
 //   node grade.mjs grade  <criteria.json>   run evidence commands, ask Jev, print verdict
 //   node grade.mjs status <criteria.json>   show lock state and round history
 //
@@ -48,13 +48,73 @@ function freeze() {
   if (existsSync(lockFile)) {
     die(2, `already frozen: ${lockFile}\nCriteria cannot be re-frozen. Start a new criteria file for a new task.`);
   }
-  const lock = { sha256: sha256File(file), frozenAt: new Date().toISOString(), baseCommit: gitHead() };
+  const baseCommit = gitHead();
+  dryRun(baseCommit);
+  const lock = { sha256: sha256File(file), frozenAt: new Date().toISOString(), baseCommit };
   writeFileSync(lockFile, JSON.stringify(lock, null, 2) + '\n');
   localGitExclude();
   console.log(`frozen ${spec.criteria.length} criteria for: ${spec.task}`);
   console.log(`lock: ${lockFile}`);
   if (lock.baseCommit) console.log(`base commit: ${lock.baseCommit} (evidence commands see it as $JEV_BASE)`);
   console.log('Criteria are now immutable. Do the work, then run: grade');
+}
+
+// Run every evidence command once before locking the file. The work has not started, so most
+// commands are expected to fail or print nothing; the only thing that blocks the freeze is a command
+// that cannot run at all (shell syntax error, unknown command, malformed sed/grep/awk expression).
+// Such a command would otherwise be frozen into a criterion nothing could ever satisfy.
+function dryRun(baseCommit) {
+  if (process.env.JEV_SKIP_DRYRUN) {
+    console.log('dry run skipped (JEV_SKIP_DRYRUN set)');
+    return;
+  }
+  console.log('dry run: executing each evidence command once (failures are expected before the work exists; only commands that cannot run block the freeze)');
+  const results = new Map();
+  const problems = [];
+  for (const command of [...new Set(spec.criteria.flatMap((c) => c.evidence))]) {
+    process.stdout.write(`  $ ${command} ... `);
+    const r = runCommand(command, baseCommit);
+    results.set(command, r);
+    const reason = malformedReason(r);
+    console.log(`exit ${r.exitCode}, ${r.length} chars${reason ? '   <- ' + reason : ''}`);
+    if (reason) problems.push({ command, reason });
+  }
+  for (const c of spec.criteria.filter((c) => c.check === 'jev')) {
+    if (c.evidence.every((e) => results.get(e).length === 0)) {
+      console.log(`  note: ${c.id} (jev) printed nothing. Jev needs text to read; make sure this prints output once the work exists (grep -q and test -z never do).`);
+    }
+  }
+  if (problems.length) {
+    const list = problems.map((p) => `  $ ${p.command}\n    ${p.reason}`).join('\n');
+    die(2, `freeze refused: ${problems.length} evidence command(s) cannot run:\n${list}\n` +
+      'The criteria are NOT frozen yet, so fix the command(s) in the criteria file and freeze again.\n' +
+      'Watch for backslashes: writing the JSON through a Bash heredoc strips one level of them. ' +
+      'Set JEV_SKIP_DRYRUN=1 to freeze anyway if a command is legitimately unrunnable before the work starts.');
+  }
+}
+
+// Returns a one-line reason when the command itself is broken (as opposed to running and failing).
+function malformedReason(r) {
+  if (r.exitCode === 'spawn-failed') return 'could not spawn a shell';
+  if (typeof r.exitCode === 'string') return `killed by ${r.exitCode}`;
+  const stderr = r.output.includes('[stderr]') ? r.output.slice(r.output.indexOf('[stderr]')) : '';
+  const firstErr = stderr.split('\n').find((l) => l.trim() && l.trim() !== '[stderr]')?.trim() ?? '';
+  if (r.exitCode === 127) return `command not found: ${firstErr || 'exit 127'}`;
+  if (r.exitCode === 126) return `not executable: ${firstErr || 'exit 126'}`;
+  const patterns = [
+    /\bsyntax error\b/i, // bash, awk, jq, node -e
+    /unexpected EOF/i, // bash unterminated quote
+    /^sed: -e expression/m, // malformed sed script
+    /^sed: (unterminated|unknown|invalid|no previous)/m,
+    /^grep: (Unmatched|Invalid|invalid|unrecognized|Trailing|Regular expression too big|missing terminating)/m,
+    /^(tr|cut|sort|find|head|tail|wc|awk|jq|xargs): (invalid|unrecognized|unknown|illegal|missing|bad|Unmatched)/m,
+    /^\S+: (invalid|unrecognized|illegal) option/m,
+    /^usage: /im,
+    /is not a git command/,
+    /unknown option to `s'/,
+  ];
+  const hit = patterns.find((p) => p.test(stderr));
+  return hit ? `malformed command: ${firstErr}` : null;
 }
 
 function status() {
@@ -223,7 +283,7 @@ function loadSpec(path) {
   return s;
 }
 
-function runCommand(command) {
+function runCommand(command, baseCommit = readLock().baseCommit) {
   const shell = findBash() ?? true;
   const r = spawnSync(command, {
     cwd: projectRoot,
@@ -231,7 +291,7 @@ function runCommand(command) {
     encoding: 'utf8',
     timeout: spec.timeoutMs,
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', JEV_BASE: readLock().baseCommit ?? 'HEAD' },
+    env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', JEV_BASE: baseCommit ?? 'HEAD' },
   });
   let output = (r.stdout ?? '') + (r.stderr ? '\n[stderr]\n' + r.stderr : '');
   if (r.error) output += `\n[spawn error] ${r.error.message}`;

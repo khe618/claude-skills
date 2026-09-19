@@ -13,8 +13,8 @@ Pre-register acceptance criteria, do the work, then let Jev (TypeSafe AI's evalu
 
 Script: `~/.claude/skills/jev-goal/scripts/grade.mjs` (Node 22+, key in `scripts/.env`).
 
-1. **Draft criteria** at `<project>/.claude/jev/<task-slug>.json` (format below). Do this before reading much code and before editing anything. Do not show the criteria to the user for approval; they delegated that.
-2. **Freeze:** `node ~/.claude/skills/jev-goal/scripts/grade.mjs freeze <file>`. Records a hash and the base commit.
+1. **Draft criteria** at `<project>/.claude/jev/<task-slug>.json` (format below). Do this before reading much code and before editing anything. Do not show the criteria to the user for approval; they delegated that. Write the file with the Write tool or `node -e` + `JSON.stringify`, not a Bash heredoc: the Bash tool strips one level of backslashes from heredoc bodies, which silently corrupts regexes and sed delimiters.
+2. **Freeze:** `node ~/.claude/skills/jev-goal/scripts/grade.mjs freeze <file>`. Dry-runs every evidence command once, then records a hash and the base commit. Failures and empty output are expected at this point (the work does not exist yet); the freeze is refused only when a command cannot run at all (shell syntax error, unknown command, malformed sed/grep expression). If refused, the file is not frozen: fix the command and freeze again. Read the dry-run output before moving on; a `jev` criterion flagged as printing nothing needs evidence that will produce text later.
 3. **Do the work** as normal (other skills still apply: TDD, debugging, verification).
 4. **Grade:** `node ~/.claude/skills/jev-goal/scripts/grade.mjs grade <file>`.
 5. **Loop:** exit 1 means some criteria failed. The output names them. Fix, then grade again. Repeat until exit 0.
@@ -50,6 +50,10 @@ Optional keys: `threshold` (default 0.8), `maxRounds` (default 10), `cwd` (proje
 - A scope criterion names code and test paths only. `.claude/jev/` is git-ignored (globally on this machine), so the criteria file never appears in `git status`; listing it as an expected file makes the criterion fail.
 - Phrase questions so `true` means done. Avoid negatives that Jev might invert.
 
+## What Jev cannot grade
+
+Jev reads evidence; it has no taste and does not reason. For open-ended goals ("make it look good", "make the docs clear", "clean this up") the criteria you can write are proxies: fonts loaded, a palette defined, a section present, a function shorter than N lines. A competent first draft clears proxies on round one, so grading will not push back on quality. Treat the criteria as the floor, and do the judgement check yourself: open the page in the browser, read the docs as a newcomer would, review the diff. Then say in the report what the confirmation block covers and what it does not. Do not stretch a `jev` question into "is this well designed?"; Jev will answer from whatever text it sees and the number will mean nothing.
+
 ## Rationalizations that mean STOP
 
 | Thought | Reality |
@@ -60,6 +64,8 @@ Optional keys: `threshold` (default 0.8), `maxRounds` (default 10), `cwd` (proje
 | "I'll write the criteria after I see how hard it is" | That is exactly the bias pre-registration exists to prevent. Criteria first. |
 | "The grader is rate limited, I'll declare it done" | Exit 4 is not a verdict. Wait and grade again. |
 | "Ten rounds hit, I'll quietly stop" | Exit 3 means report the failing criteria and the rounds file to the user. Say it plainly. |
+| "Freeze refused a command, I'll set JEV_SKIP_DRYRUN" | The dry run only blocks on commands that cannot run. Fix the command. The skip is for a command that genuinely cannot execute before the work exists, and that is rare. |
+| "All ten criteria passed on round one, so the page must be good" | It means the proxies were met. Open it, read it, look at it. Proxies are the floor, not the verdict. |
 
 ## Common mistakes
 
@@ -67,3 +73,5 @@ Optional keys: `threshold` (default 0.8), `maxRounds` (default 10), `cwd` (proje
 - Evidence that depends on the shell cwd. Commands run from the project root; use paths relative to it.
 - Criteria about quality of judgement ("is the design clean?"). Jev grades observable facts. Keep judgement calls for a human or a reasoning reviewer.
 - Grading from a dirty tree that includes unrelated changes. `$JEV_BASE` diffs show everything since freeze.
+- A frozen evidence command that turns out to be broken anyway (the dry run cannot catch everything). Do not grind rounds against it. Leave that file as a recorded FAIL, create `<slug>-2.json` with identical criteria and the fixed command, freeze that, and say so in the report.
+- Backslashes in evidence regexes. Prefer `[.]` for a literal dot and `#` as the sed delimiter when the pattern contains `/`, so the command survives every quoting layer.
