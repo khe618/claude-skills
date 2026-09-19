@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runScript } from './helpers/run.mjs';
+import { spawnSync } from 'node:child_process';
+import { runScript, scriptsDir } from './helpers/run.mjs';
 import { makeBuilder } from './helpers/transcript-builder.mjs';
 import { makeProject, writeCriteria, freezeFile, appendRound } from './helpers/goal-dir.mjs';
 import { confirmationToken } from '../lib/token.mjs';
@@ -48,9 +49,11 @@ test('headless transcript (sdk-cli) is ignored', () => {
 
 test('conversation-only and research-only segments never nudge', () => {
   const b = makeBuilder(); b.human('what does this do?'); b.assistantText('It does X. I could also refactor it.');
-  assert.equal(run(b.write(), { answers: UNFINISHED }).out, '');
+  const rb = run(b.write(), { answers: UNFINISHED });
+  assert.equal(rb.out, ''); assert.equal(rb.records.length, 0, 'no log record: the battery never ran, this did not crash');
   const c = makeBuilder(); c.human('find the bug'); const id = c.toolUse('Grep', { pattern: 'x' }); c.toolResult(id); c.assistantText('Found it in a.ts; I will fix it next.');
-  assert.equal(run(c.write(), { answers: UNFINISHED }).out, '');
+  const rc = run(c.write(), { answers: UNFINISHED });
+  assert.equal(rc.out, ''); assert.equal(rc.records.length, 0, 'no log record: the battery never ran, this did not crash');
 });
 
 test('AskUserQuestion in the segment suppresses the battery', () => {
@@ -102,7 +105,8 @@ test('decision rule: each veto alone suppresses, each trigger alone fires, thres
 test('nudge cap: second nudge needs mutating progress; third never fires; restatement vetoes', () => {
   // one prior nudge, then only a Read: no second nudge
   const b1 = workingTurn(); b1.feedback('jev-stop-nudge#11111111 (1/2): unfinished'); const rd = b1.toolUse('Read', { file_path: 'a' }); b1.toolResult(rd); b1.assistantText('Still planning to add the test.');
-  assert.equal(run(b1.write(), { answers: UNFINISHED }).out, '');
+  const r1 = run(b1.write(), { answers: UNFINISHED });
+  assert.equal(r1.out, ''); assert.equal(r1.records.length, 0, 'no log record: the battery never ran, this did not crash');
   // one prior nudge, then an Edit: second nudge allowed, counter says 2/2, previousNudge sent
   const b2 = workingTurn(); b2.feedback('jev-stop-nudge#11111111 (1/2): unfinished'); const ed = b2.toolUse('Edit', { file_path: 'test/upload.test.ts' }); b2.toolResult(ed); b2.assistantText('Added the test file. I still need to run it.');
   const r2 = run(b2.write(), { answers: { ...UNFINISHED, restatement: 0.1 } });
@@ -115,6 +119,7 @@ test('nudge cap: second nudge needs mutating progress; third never fires; restat
   const r3 = run(b3.write(), { answers: UNFINISHED });
   assert.equal(r3.out, '');
   assert.equal(r3.records[0]?.batteryRan ?? false, false);
+  assert.equal(r3.records.length, 0, 'no log record: the battery never ran, this did not crash');
 });
 
 test('a reply to the agent-logs hook (empty segment) does not nudge even though the chain has edits', () => {
@@ -125,6 +130,23 @@ test('a reply to the agent-logs hook (empty segment) does not nudge even though 
 test('grader failures fail open and are logged', () => {
   const r429 = run(workingTurn().write(), { error: 429 });
   assert.equal(r429.out, ''); assert.equal(r429.records[0].error.code, 'grader_unavailable'); assert.equal(r429.records[0].error.status, 429);
+  assert.equal(r429.records[0].batteryRan, true);
+  // A non-JevError exception (parseTranscript throwing on a directory) must also fail open, exit 0,
+  // and be logged distinctly as 'exception' rather than misreported as a grader failure.
+  const rExc = run(tmpdir(), { answers: UNFINISHED });
+  assert.equal(rExc.status, 0); assert.equal(rExc.out, ''); assert.equal(rExc.records[0].error.code, 'exception');
+});
+
+test('missing or non-finite battery answers veto rather than nudge', () => {
+  // jev.mjs's fake-answer path back-fills any omitted question id with a genuine 0, so a literally
+  // omitted key can never surface as "missing" to stop-hook.mjs. A non-numeric placeholder forces
+  // Number(...) to NaN inside jev.mjs's own conversion, which is what actually reaches stop-hook.mjs
+  // as a non-finite probability — the real-world case this guards (a partial/garbled judge response).
+  const r = run(workingTurn().write(), {
+    answers: { promises_pending: 0.9, request_unmet: 0.9, asks_user: 'n/a', blocked_external: 'n/a', declined: 'n/a' },
+  });
+  assert.equal(r.out, '');
+  assert.deepEqual(r.records[0].fired.vetoes, ['asks_user', 'blocked_external', 'declined']);
 });
 
 test('redaction reaches the log preview', () => {
@@ -256,4 +278,43 @@ test('missing gateway key fails open and is logged as no_key', () => {
   assert.equal(r.status, 0); assert.equal(r.stdout.trim(), '');
   const rec = JSON.parse(readFileSync(log, 'utf8').trim().split('\n').at(-1));
   assert.equal(rec.error.code, 'no_key');
+});
+
+test('stop_hook_active is recorded on the log entry but never gates behaviour', () => {
+  const r = run(workingTurn().write(), { answers: UNFINISHED });
+  assert.equal(r.records[0].stopHookActive, false);
+});
+
+test('hook stays silent and exits 0 when a library fails to load', () => {
+  // Copy the hook and its libs to an isolated directory, break lib/redact.mjs, and confirm the
+  // hook still fails open in both off mode (never even touches the broken file) and shadow mode
+  // (touches it, fails open, and logs the exception) rather than crashing with a stack trace.
+  const dir = mkdtempSync(join(tmpdir(), 'jev-hook-copy-'));
+  cpSync(join(scriptsDir, 'lib'), join(dir, 'lib'), { recursive: true });
+  cpSync(join(scriptsDir, 'stop-hook.mjs'), join(dir, 'stop-hook.mjs'));
+  // lib/jev.mjs does `import dotenv from 'dotenv'`; give the copy access to the real
+  // scripts/node_modules via a directory junction (no admin rights required on Windows).
+  try { symlinkSync(join(scriptsDir, 'node_modules'), join(dir, 'node_modules'), 'junction'); } catch { /* best effort */ }
+  writeFileSync(join(dir, 'lib', 'redact.mjs'), "throw new Error('boom');\n");
+  const copiedScript = join(dir, 'stop-hook.mjs');
+  const input = JSON.stringify({ session_id: 's1', transcript_path: workingTurn().write(), cwd: 'C:\\proj', stop_hook_active: false });
+  const logDir = mkdtempSync(join(tmpdir(), 'jev-log-'));
+  const log = join(logDir, 'log.jsonl');
+  delete process.env.JEV_FAKE_ANSWERS; delete process.env.JEV_FAKE_ERROR;
+
+  const offRun = spawnSync(process.execPath, [copiedScript], {
+    cwd: dir, encoding: 'utf8', input, env: { ...process.env, JEV_STOP_HOOK: 'off', JEV_STOP_HOOK_LOG: log },
+  });
+  assert.equal(offRun.status, 0, offRun.stderr);
+  assert.equal((offRun.stdout ?? '').trim(), '');
+  assert.equal(existsSync(log), false, 'off mode returns before ever importing the broken lib file');
+
+  const shadowRun = spawnSync(process.execPath, [copiedScript], {
+    cwd: dir, encoding: 'utf8', input, env: { ...process.env, JEV_STOP_HOOK: 'shadow', JEV_STOP_HOOK_LOG: log },
+  });
+  assert.equal(shadowRun.status, 0, shadowRun.stderr);
+  assert.equal((shadowRun.stdout ?? '').trim(), '');
+  const recs = readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].error.code, 'exception');
 });

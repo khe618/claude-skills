@@ -4,13 +4,12 @@ import { existsSync, mkdirSync, appendFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { askJev, JevError, RULE, truncate, capList } from './lib/jev.mjs';
-import { redact } from './lib/redact.mjs';
-import {
-  parseTranscript, isHeadless, chain, segment, segmentBefore, finalAssistantText, toolCalls, freezeInvocations,
-  sentinelPositions, lastHumanPromptIndex, entryText, isMutating, extractNudgeReason, WAITING_TOOLS, EDIT_TOOLS,
-} from './lib/transcript.mjs';
-import { goalStates, gateDecision } from './lib/goal-gate.mjs';
+
+// This hook must never exit non-zero and never crash Claude Code's Stop-hook pipeline, no matter what
+// throws (a broken lib file, a stdout EPIPE, an unforeseen bug). These are last-resort nets.
+process.on('uncaughtException', () => process.exit(0));
+process.on('unhandledRejection', () => process.exit(0));
+process.stdout.on('error', () => { /* e.g. EPIPE if the consumer closed the pipe */ });
 
 export const TRIGGER = 0.8; // trigger fires at P(true) >= TRIGGER (raw, unrounded)
 export const VETO = 0.5;    // veto holds at P(true) >= VETO (raw, unrounded)
@@ -32,12 +31,29 @@ async function main() {
 
   const record = {
     at: new Date().toISOString(), session: input.session_id ?? null, cwd: input.cwd ?? null, mode,
+    stopHookActive: input.stop_hook_active ?? null,
     nudgeCount: 0, gateCount: 0, gate: null, batteryRan: false, answers: null, fired: null, wouldBlock: false, blocked: false,
     reason: null, finalMessagePreview: null, usage: null, error: null, label: null,
   };
   let decision = null;
+  let libs = null; // set only once every ./lib/*.mjs import below succeeds
 
   try {
+    // Deferred so a broken lib file throws inside this try/catch (and after the mode check above)
+    // instead of crashing the process at module load, before we ever get a chance to fail open.
+    libs = {
+      ...(await import('./lib/jev.mjs')),
+      ...(await import('./lib/redact.mjs')),
+      ...(await import('./lib/transcript.mjs')),
+      ...(await import('./lib/goal-gate.mjs')),
+    };
+    const {
+      askJev, JevError, RULE, truncate, capList, redact,
+      parseTranscript, isHeadless, chain, segment, segmentBefore, finalAssistantText, toolCalls, freezeInvocations,
+      sentinelPositions, lastHumanPromptIndex, entryText, isMutating, extractNudgeReason, WAITING_TOOLS, EDIT_TOOLS,
+      goalStates, gateDecision,
+    } = libs;
+
     const entries = parseTranscript(transcriptPath);
     if (!entries.length || isHeadless(entries)) return;
     const promptIdx = lastHumanPromptIndex(entries);
@@ -78,7 +94,7 @@ async function main() {
       const after = toolCalls(ch).filter((c) => c.index > pos && isMutating(c.name));
       if (!after.length) return;
       previousNudge = {
-        reason: redact(extractNudgeReason(entryText(ch[pos])) ?? ''), // only OUR block, never other hooks' text
+        reason: truncate(redact(extractNudgeReason(entryText(ch[pos])) ?? ''), 2000, 0), // only OUR block, never other hooks' text
         assistantMessageBefore: truncate(redact(finalAssistantText(segmentBefore(ch, pos))), CAPS.nudgeBefore, 0),
         mutatingCallsAfter: after.length,
       };
@@ -93,15 +109,20 @@ async function main() {
       toolCallsThisSegment: capList(summarised, 39, 20),
       previousNudge,
     };
-    if (process.env.JEV_STOP_HOOK_DUMP_STATE) {
-      // Test-only: write the exact object sent to the judge. Never set in a real registration.
+    if (process.env.JEV_STOP_HOOK_DUMP_STATE && (process.env.JEV_FAKE_ANSWERS || process.env.JEV_FAKE_ERROR)) {
+      // Test-only: write the exact object sent to the judge, and only under the fake-battery test
+      // harness. Never set JEV_STOP_HOOK_DUMP_STATE in a real registration.
       try { writeFileSync(process.env.JEV_STOP_HOOK_DUMP_STATE, JSON.stringify(state, null, 2)); } catch { /* ignore */ }
     }
-    const questions = buildQuestions(!!previousNudge);
+    const questions = buildQuestions(!!previousNudge, RULE);
     record.batteryRan = true;
     const result = await askJev({ questions, state, timeoutMs: 25_000, maxRetries: 0, allowFake: true });
     record.usage = result.usage;
-    const raw = Object.fromEntries(Object.keys(questions).map((id) => [id, Number(result.answers[id]?.probability ?? 0)]));
+    // A missing or non-finite answer fails safe: a veto id counts as a veto (1), a trigger id counts as 0.
+    const raw = Object.fromEntries(Object.keys(questions).map((id) => {
+      const p = Number(result.answers[id]?.probability);
+      return [id, Number.isFinite(p) ? p : (VETO_IDS.includes(id) ? 1 : 0)];
+    }));
     record.answers = Object.fromEntries(Object.entries(raw).map(([id, p]) => [id, round2(p)])); // rounded for the log only
     const triggers = TRIGGER_IDS.filter((id) => raw[id] >= TRIGGER);
     const vetoes = VETO_IDS.filter((id) => id in raw && raw[id] >= VETO);
@@ -110,18 +131,21 @@ async function main() {
       decision = nudgeReason(triggers, raw, record.nudgeCount + 1);
     }
   } catch (e) {
-    record.error = e instanceof JevError ? { code: e.code, status: e.status ?? null, message: e.message } : { code: 'exception', message: String(e?.message ?? e) };
+    const JE = libs?.JevError; // libs may be null/incomplete if a ./lib/*.mjs import itself threw
+    record.error = (JE && e instanceof JE) ? { code: e.code, status: e.status ?? null, message: e.message } : { code: 'exception', message: String(e?.message ?? e) };
     decision = null;
   } finally {
     record.wouldBlock = !!decision;
     record.blocked = !!decision && mode === 'enforce';
     record.reason = decision;
-    if (record.blocked) process.stdout.write(JSON.stringify({ decision: 'block', reason: decision }) + '\n');
+    if (record.blocked) {
+      try { process.stdout.write(JSON.stringify({ decision: 'block', reason: decision }) + '\n'); } catch { /* EPIPE etc: never let a write failure skip the log append below */ }
+    }
     if (record.gate || record.batteryRan || record.error) appendLog(record);
   }
 }
 
-function buildQuestions(withRestatement) {
+function buildQuestions(withRestatement, RULE) {
   const q = (question) => ({ type: 'boolean', instructions: { question, rule: RULE } });
   const questions = {
     asks_user: q('Does the final assistant message end by asking the user a question, or asking them to choose between options or approve something, such that the assistant needs that answer before it can continue?'),
