@@ -83,6 +83,26 @@ export function summarize(name, input) {
   return name;
 }
 
+function resultText(block) {
+  const c = block?.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.filter((x) => x && x.type === 'text' && typeof x.text === 'string').map((x) => x.text).join('\n');
+  return '';
+}
+
+// True when the segment shows the assistant handing work to something it must wait for: a subagent launched
+// asynchronously, a Bash command run in the background, a Monitor, or a message sent to another agent. Stopping after such a dispatch is not
+// stopping short, so the nudge battery must not run.
+const ASYNC_AGENT_RE = /async agent launched|running in the background/i;
+const BG_BASH_RE = /running in background/i;
+export function backgroundDispatch(calls) {
+  return calls.some((c) =>
+    (c.name === 'Agent' && ASYNC_AGENT_RE.test(c.resultPreview ?? '')) ||
+    (c.name === 'Bash' && (c.input?.run_in_background === true || BG_BASH_RE.test(c.resultPreview ?? ''))) ||
+    c.name === 'Monitor' ||
+    c.name === 'SendMessage'); // a message to another agent (e.g. resuming a subagent) is always followed by waiting for its reply
+}
+
 export function toolCalls(entries) {
   // Results are keyed by id; the first result that appears AFTER the call wins. Earlier or duplicate results are ignored.
   const resultsById = new Map(); // id -> [{ index, block }]
@@ -102,7 +122,10 @@ export function toolCalls(entries) {
     for (const b of c) {
       if (!b || b.type !== 'tool_use') continue;
       const r = (resultsById.get(b.id) ?? []).find((x) => x.index > index)?.block;
-      calls.push({ name: b.name, summary: summarize(b.name, b.input), ok: !(r && r.is_error === true), timestamp: e.timestamp, index, id: b.id, input: b.input });
+      calls.push({
+        name: b.name, summary: summarize(b.name, b.input), ok: !(r && r.is_error === true), timestamp: e.timestamp, index, id: b.id, input: b.input,
+        resultPreview: r ? resultText(r).slice(0, 200) : '', // local use only (background detection); never sent to the judge
+      });
     }
   });
   return calls;

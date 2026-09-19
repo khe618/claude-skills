@@ -103,6 +103,8 @@ All must hold, otherwise exit 0 (after logging when in shadow mode and the gate 
 - The segment contains at least one mutation-capable tool call (working-turn test; the user's rule).
 - The segment contains no `AskUserQuestion`, `EnterPlanMode`, or `ExitPlanMode` call (waiting on the user by construction).
 - `nudgeCount < 2`, and if `nudgeCount == 1`, progress after the nudge exists.
+- The segment boundary is the human prompt or this hook's own nudge, not another hook's feedback entry. A reply to the agent-logs or idea-capture prompt answers that hook; the request was already judged at the previous stop, and re-judging it compares the original prompt with a one-line answer. Logged as `skipped: post_hook_segment`.
+- The segment contains no background dispatch: no `Agent` call whose result reports an asynchronous launch, no `Bash` call run in the background, no `Monitor`. Work handed to a background task is not work left undone; the first shadow data showed this pattern in 16 of the first 21 would-nudge verdicts. Logged as `skipped: background_wait`.
 
 ### 4.6 Battery
 

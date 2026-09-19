@@ -323,3 +323,49 @@ test('hook stays silent and exits 0 when a library fails to load', () => {
   assert.equal(recs.length, 1);
   assert.equal(recs[0].error.code, 'exception');
 });
+
+test('a segment that dispatched a background subagent is not nudged (skipped: background_wait)', () => {
+  const b = workingTurn();
+  const id = b.toolUse('Agent', { description: 'review diff', prompt: 'x' });
+  b.toolResult(id, 'Async agent launched successfully. (This tool result is internal metadata) agentId: abc123');
+  b.assistantText('Review dispatched. I will fold its findings in when it lands.');
+  const r = run(b.write(), { answers: UNFINISHED });
+  assert.equal(r.out, '');
+  assert.equal(r.records.length, 1);
+  assert.equal(r.records[0].batteryRan, false);
+  assert.equal(r.records[0].skipped, 'background_wait');
+});
+
+test('a segment with a Bash command run in the background is not nudged (skipped: background_wait)', () => {
+  const b = makeBuilder();
+  b.human('deploy it and tell me when it is up');
+  const id = b.toolUse('Bash', { command: 'npm run deploy', run_in_background: true });
+  b.toolResult(id, 'Command running in background with ID: bx1. Output is being written to: x');
+  b.assistantText('Deploy started; I will report when it finishes.');
+  const r = run(b.write(), { answers: UNFINISHED });
+  assert.equal(r.out, '');
+  assert.equal(r.records[0].skipped, 'background_wait');
+});
+
+test("a segment that follows another hook's feedback is not evaluated (skipped: post_hook_segment)", () => {
+  const b = workingTurn();
+  b.feedback('End-of-session agent-logs check. Before stopping, decide...');
+  const id = b.toolUse('Skill', { skill: 'agent-logs' });
+  b.toolResult(id, 'Launching skill: agent-logs');
+  b.assistantText('Logged to LEARNINGS.md.');
+  const r = run(b.write(), { answers: UNFINISHED });
+  assert.equal(r.out, '');
+  assert.equal(r.records.length, 1);
+  assert.equal(r.records[0].batteryRan, false);
+  assert.equal(r.records[0].skipped, 'post_hook_segment');
+});
+
+test("a segment that follows this hook's own nudge is still evaluated", () => {
+  const b = workingTurn();
+  b.feedback("End-of-session agent-logs check.\n\njev-stop-nudge#11111111 (1/2): the user's request looks unfinished.\nIf you can advance the request now, do it. If you are genuinely waiting on the user, say so in one sentence and stop.");
+  const ed = b.toolUse('Edit', { file_path: 'test/upload.test.ts' }); b.toolResult(ed);
+  b.assistantText('Added the test file. I still need to run it.');
+  const r = run(b.write(), { answers: { ...UNFINISHED, restatement: 0.1 } });
+  assert.match(r.decision.reason, /\(2\/2\)/);
+  assert.equal(r.records[0].skipped ?? null, null);
+});
