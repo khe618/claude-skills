@@ -289,6 +289,10 @@ discard uncommitted work to make cleanup easier.
      `C:\dev\factory\ledger\events\<YYYYMMDDTHHMMSSZ>-<6-char [a-z0-9]>-pruned.json`
      (schema per spec §4.3: `v:1`, `ts`, `actor: "local:<project>"`, `run`, `event: "pruned"`,
      `project`, `task: "<id>"`, `detail`, `pr: "<PR URL>"`).
+     **The `ts` FIELD is full ISO 8601 (`2026-09-03T13:30:53Z`) — only the
+     FILENAME uses the compact `20260903T133053Z` form. Mixing them up turns
+     the factory `validate` CI red (it did on 2026-09-03).** Run
+     `node scripts/validate.mjs` in the factory checkout before pushing.
    - One commit covering both the queue edit and the new event file:
      `git -C /c/dev/factory add queues/<project>.md ledger/events/<new-file>`
      then commit `state: prune <id> after merge of PR #<n>`.

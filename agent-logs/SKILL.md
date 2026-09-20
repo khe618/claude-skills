@@ -39,6 +39,8 @@ The moment-of-discovery is when the context is freshest, and the user has explic
 
 If you're on the fence, write it. A slightly-noisy log is recoverable; missing the moment is not. Don't hesitate, don't second-guess the bar, don't ask the user whether it's "worth logging" — that's exactly the friction this skill is meant to remove.
 
+**The Stop hook is a backstop, not the trigger.** It used to ask on every turn; it now asks only when the transcript shows a completed failure → fix → verify episode, and it deliberately applies a *stricter* bar than this section because every hook fire costs a full-context API call. Findings the hook can't see mechanically — silent misbehavior with no failing command, things discovered inside a subagent, a contradiction you verified by reading output — will only be captured if you invoke this skill yourself at the moment you confirm them. Do not wait for the hook.
+
 ## Workflow
 
 1. **Pick the tier — project-specific or cross-project.**
@@ -69,16 +71,27 @@ If you're on the fence, write it. A slightly-noisy log is recoverable; missing t
 
    Create the directory and the file on demand. Use the new-file header template below, substituting an appropriate title (e.g. `# LEARNINGS — Claude Code (user-global)` for `claude-code.md`).
 
-3. **Read the existing file** if it exists. Decide between three actions:
+3. **Dedup with a two-pass lookup — never read a whole log file.** The files are large (the global topic files total ~145k tokens; several `LEARNINGS.md` exceed 30k), and topic boundaries are fuzzy enough that the same root cause has landed in two topic files before.
+   - **Pass 1 — titles.** Grep the `## ` headings for two or three root-cause keywords (library name, tool name, error phrase). For tier 2 grep **all four** topic files, not just the destination: `grep -n -i '^## .*\(kw1\|kw2\)' ~/.claude/agent-logs/*.md`. For tier 1 grep the project's `LEARNINGS.md`.
+   - **Pass 2 — candidates only.** Read the matched entries' line ranges (`sed -n 'A,Bp'`), nothing else. Treat a match as a *candidate* for the same root cause, not proof of it; differently worded duplicates can slip through, so also try one synonym if the first grep comes up empty.
+
+   Then decide between three actions:
    - **New entry** — no existing entry shares the same root cause AND the same fix.
-   - **Append a dated note under an existing entry** — same root cause OR same fix, with new information (a related symptom, an additional file, a clarification). Add as a `**Update YYYY-MM-DD:** …` line under the existing entry; do not rewrite the original text.
+   - **Append a dated note under an existing entry** — same root cause OR same fix, with new information (a related symptom, an additional file, a clarification). Add as a `**Update YYYY-MM-DD:** …` line under the existing entry (≤80 words); do not rewrite the original text. If the entry already carries **three** updates, write a consolidated successor entry at the top instead and add `**Superseded by:** <new title>` under the old one.
    - **Add a dated contradiction note** — when a new finding contradicts an existing entry, never overwrite. Add a `**Update YYYY-MM-DD:** contradicts above — …` line under the old entry with what you observed now. Future-you can reconcile when revisiting.
 
-   "Related" means **same root cause OR same fix** — not just same library, same file, or similar-sounding symptom. Two bugs in the same module with different causes are two entries.
+   "Related" means **same root cause OR same fix** — not just same library, same file, or similar-sounding symptom. Two bugs in the same module with different causes are two entries. A cross-file match means the *existing* file wins: append the update there rather than starting a parallel entry in the destination file.
 
-4. **Write the entry directly** using the format below. Use today's date in `YYYY-MM-DD`. Each section is one to three sentences; the file stays scannable. No draft-and-approve step — just append. Newest entries at the top, immediately under the header block. If the file is missing, create it with the header template below. If the file exists but doesn't match the template (no `# LEARNINGS` heading, no `---` delimiter), insert the new entry at the top of the file above all existing content, and leave the legacy structure alone — don't reformat someone else's file.
+4. **Write the entry directly** using the format below, inside these hard caps (they exist because retrieval is by title grep and range read, so long entries and long titles both hurt):
+   - **One root cause per entry.** Two findings from one session are two entries.
+   - **Title ≤ 140 characters**, imperative, front-loaded with the greppable noun (tool, library, error text). Put caveats in the body, not the title.
+   - **Each section ≤ 2 sentences; whole body ≤ 15 non-blank lines (~220 words). Refs ≤ 3.** Evidence that doesn't fit belongs in a linked commit, PR, or doc.
+
+   Use today's date in `YYYY-MM-DD`. No draft-and-approve step — just append. Newest entries at the top, immediately under the header block. If the file is missing, create it with the header template below. If the file exists but doesn't match the template (no `# LEARNINGS` heading, no `---` delimiter), insert the new entry at the top of the file above all existing content, and leave the legacy structure alone — don't reformat someone else's file.
 
 5. **Confirm in one line.** "Logged to `<path>`." Don't restate the entry; the file is right there if the user wants to read it.
+
+6. **Size check.** If the file you just wrote to is over ~100 KB (`wc -c`), say so in the same line: "Logged to `<path>` (file is 130 KB — due for a consolidation pass, see Retention)." Don't consolidate now; that's a separate, reviewable job.
 
 ## Entry format
 
@@ -122,6 +135,15 @@ For tier 2 files, use the topic as the title:
 
 - **New finding contradicts an existing entry.** Never overwrite. Add a `**Update YYYY-MM-DD:** contradicts above — …` note under the old entry with the new observation. Future-you can reconcile on a revisit.
 
+## Retention — consolidate, don't delete
+
+Growth is the failure mode: at ~25 entries/week the global files became write-only because nothing could afford to read them. When a file passes ~100 KB (roughly 25k tokens) or on a quarterly pass, whichever comes first, run a consolidation **as an explicit, user-visible task** (say what you're doing; it's judgment-heavy and should be reviewable):
+
+- Merge exact duplicates and superseded entries into one current entry; leave `**Superseded by:** <title>` pointers under the old ones.
+- Promote rules that have become stable operating procedure into the owning skill or `AGENTS.md` (the `skill-review` skill does this for skills), then mark the entry `**Promoted to:** <file>`.
+- Move entries that are superseded, invalidated, or fully promoted to `~/.claude/agent-logs/archive/<topic>.md` (or `<project>/LEARNINGS-archive.md`). The archive lives **outside** the `*.md` glob the readers and `skill-review` scan, so it costs nothing until someone greps it on purpose.
+- Never archive an entry merely because it is old. Age is not evidence that it stopped being true.
+
 ## Why these constraints
 
-A `LEARNINGS.md` is only valuable if future-Claude trusts it enough to read it. The guardrails that remain — anchoring dedup on root cause, never overwriting old entries, redacting secrets — keep the file useful. The approval gate that used to live here was friction with no payoff: it caused entries to be skipped or never written, which is worse than a slightly-noisy log. Write directly, trust your judgment on the bar, and if a particular entry turns out to be noise, future-you can prune it.
+A `LEARNINGS.md` is only valuable if future-Claude trusts it enough to read it — and *can afford to*. The guardrails that remain — anchoring dedup on root cause, never overwriting old entries, redacting secrets, hard size caps, title-first retrieval — keep the file useful and keep reading it cheap. The approval gate that used to live here was friction with no payoff: it caused entries to be skipped or never written, which is worse than a slightly-noisy log. Write directly, trust your judgment on the bar, and if a particular entry turns out to be noise, the consolidation pass will fold it away.
