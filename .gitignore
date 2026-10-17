@@ -23,3 +23,8 @@ Thumbs.db
 
 # Claude app-managed copy of Anthropic-provided skills (sync cache, not owned here)
 synced/
+
+# Personal/project-specific skills kept local only (repo is public)
+reddit-quant-queue/
+ga-weekly-digest/
+social-post/
