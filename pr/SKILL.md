@@ -23,6 +23,7 @@ Run these in order. The inspection steps are not skippable — a PR title and bo
 10. **Confirm the base branch with the user if anything is unusual.** If the current branch's name implies a target other than the default (e.g. `hotfix/*` going into `release/*`, or a stacked branch obviously off another feature branch), ask before running `gh pr create`. If the default branch is the obvious target, just proceed.
 11. **`gh pr create`** with title and body, using a HEREDOC for the body so multi-line formatting survives. See the exact invocation below.
 12. **Report the PR URL.** One line. `gh pr create` prints the URL on success — relay it.
+13. **Then run the review check.** Codex reviews every PR a few minutes after it opens. Follow `~/.claude/skills/merge-and-ship/references/codex-review.md` (wait for the review, triage unresolved threads) before telling the user the PR is ready — per the "PR review comments" rule in `~/.claude/CLAUDE.md`. Not a merge; just reading and answering the review.
 
 ## PR body template
 

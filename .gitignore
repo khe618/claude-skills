@@ -20,3 +20,6 @@ id_ed25519*
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Claude app-managed copy of Anthropic-provided skills (sync cache, not owned here)
+synced/

@@ -85,6 +85,20 @@ gh pr checks <N>          # CI status — don't merge over red checks
   with `gh pr view <N> --json labels`; if present and unconfirmed, stop and
   ask the user to do the UI pass (or confirm they already did) before
   proceeding — do not merge on the strength of green CI alone for these PRs.
+- **Unresolved review threads → FAIL the pre-merge check.** These repos have
+  the ChatGPT Codex app review every PR, and outside factory PRs nobody else
+  reads its findings — 18 sat unresolved on merged travel_app PRs before this
+  gate existed. Follow [`references/codex-review.md`](references/codex-review.md):
+  make sure a Codex review of the current head exists (wait a few minutes if
+  it's still running), list unresolved threads from **any** reviewer, and
+  triage each — fix valid ones on the branch and resolve, decline invalid
+  ones with a reason and resolve. A fix push restarts step 1 (CI, and a
+  `@codex review` re-review for behavior changes). Threads that need the
+  user's call: stop and list them with a recommendation; merge only once
+  each is fixed or the user waives it in this conversation (reply noting the
+  waiver, then resolve). A factory PR whose responder escalated a thread
+  (`needs_human`) is in exactly this state. If no Codex review ever arrives,
+  say so — treat it as unknown, not clean, and ask before merging.
 
 If the user invoked the skill with a PR number, that *is* the go-ahead to
 merge — once the checks pass, proceed without a second "shall I merge?" gate.
@@ -160,15 +174,26 @@ ls .vercel 2>/dev/null
 Two modes:
 
 - **Auto-deploy mode** (e.g. traderprep — Render auto-deploys `main` to
-  traderprep.org): the merge already triggered the deploy. Your job is to
-  **verify it landed**, not to deploy again. Check the serving host's
-  dashboard/CLI for a new production deployment that goes live (for a Vercel-
-  served project, `npx vercel ls` reaching READY; for Render, confirm via the
-  live-domain check in "Verify the deploy" below). Only fall back to a manual
-  deploy if nothing new appears within a few minutes.
-- **Manual mode** (e.g. travel_app — AGENTS.md states pushes don't auto-deploy
-  because the Git integration isn't firing; the user has standing authorization
-  to deploy, no need to re-ask): you must run the deploy yourself.
+  traderprep.org; also travel_app — the Vercel Git integration has deployed
+  `main` on every merge since at least 2026-09-29, confirmed `source: git`
+  production deployments reaching READY within about a minute of the merge;
+  see travel_app's `LEARNINGS.md` 2026-10-01 entry): the merge already
+  triggered the deploy. Your job is to **verify it landed**, not to deploy
+  again. Check the serving host's dashboard/CLI for a new production
+  deployment that goes live (for a Vercel-served project, `npx vercel ls`
+  reaching READY, or confirm `source: git` with `meta.githubCommitSha`
+  matching the merge SHA via `npx vercel api "/v6/deployments?..."`; for
+  Render, confirm via the live-domain check in "Verify the deploy" below).
+  Only fall back to a manual deploy if nothing new appears within a few
+  minutes. For travel_app specifically, do **not** also run
+  `npx vercel --prod` — the Git integration already shipped it, and a manual
+  CLI deploy there only produces a redundant `source: cli` duplicate
+  deployment a minute or so later.
+- **Manual mode** (for a project whose deploy docs state the Git integration
+  genuinely isn't firing — e.g. you see only `source: cli` production
+  deployments with no matching `source: git` one for recent merges; the user
+  has standing authorization to deploy in that case, no need to re-ask): you
+  must run the deploy yourself.
 
 ### Manual deploy — and why the working tree matters
 
@@ -273,7 +298,9 @@ discard uncommitted work to make cleanup easier.
    `task-manage` contract
    (`~/.claude/skills/task-manage/references/tasks-md-contract.md`) — the
    queue has **no done state**, so "done" means **deleting the matching
-   entry**, not adding a `[done]` marker. Two cases:
+   entry**, not adding a `[done]` marker. If the PR already shows a
+   `shipper:*` prune in the ledger (shipped from the dashboard), skip the
+   prune. Two cases:
 
    **Factory-managed project** (present in `C:\dev\factory\config\factory.json`):
    the queue is `C:\dev\factory\queues\<project>.md`.
@@ -385,7 +412,7 @@ symptom, apply the fix, don't re-debug from scratch.
 
 ## What to report at the end
 
-A tight summary: PR # merged (merge SHA + method), deploy status (READY +
+A tight summary: the Codex review outcome (per `references/codex-review.md`), PR # merged (merge SHA + method), deploy status (READY +
 production URL/alias, or "auto-deploy verified"), and cleanup outcome — branch
 and worktree removal, the local `<base>` fast-forward, and whether a queue
 entry (factory `queues/<project>.md` task ID, or a local `TASKS.md` entry) was
